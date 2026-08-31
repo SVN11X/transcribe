@@ -92,7 +92,7 @@
         <input type="number" id="interval" value="5" min="1" step="1" />
       </div>
     </div>
-    <label class="check"><input type="checkbox" id="dedup" checked /><span>Guardar una imagen solo cuando la pantalla cambia de verdad, por ejemplo al cambiar de diapositiva, compartir una planilla o hacer scroll. Salta las repeticiones y las caras que solo se mueven un poco.</span></label>
+    <label class="check"><input type="checkbox" id="dedup" checked /><span>Guardar una imagen cuando la pantalla cambia de verdad, por ejemplo al cambiar de diapositiva, compartir una planilla o hacer scroll, y al menos una cada 45 segundos para no perder nada. Salta las caras que solo se mueven un poco.</span></label>
     <label class="check"><input type="checkbox" id="useOCR" /><span>Leer además el texto de la pantalla con OCR. Normalmente <b>no hace falta</b>. Una IA que ve imágenes lee la pantalla mejor que el OCR, y en capturas densas el OCR sale con errores que ensucian el documento. Actívalo solo si vas a pegar el texto en una IA que no ve imágenes.</span></label>
     <div id="ocrLangWrap" style="display:none; margin-top:10px">
       <label class="field" for="lang">Idioma del texto en pantalla</label>
@@ -232,8 +232,8 @@ function updateEstimate(){
   if (!ready) return;
   const step = Math.max(1, parseInt($('interval').value)||5);
   const n = Math.floor(vid.duration/step)+1;
-  let msg = 'Se revisarán alrededor de ' + n + ' momentos. Con el guardado inteligente activo, quedan solo los que cambian, así que el documento tendrá bastantes menos imágenes.';
-  if (n > 300) msg += ' Aun así son muchos. Si va lento, sube los segundos.';
+  let msg = 'Se revisarán alrededor de ' + n + ' momentos. Con el guardado inteligente se quedan los cambios de pantalla más una imagen cada 45 segundos, así que el documento tendrá menos imágenes que eso.';
+  if (n > 300) msg += ' Si va lento, sube los segundos.';
   $('estimate').textContent = msg;
 }
 
@@ -455,7 +455,7 @@ async function run(){
   const times = [];
   for (let t=0; t<=vid.duration; t+=step) times.push(t);
   const frames = [];
-  let keptSig = null;
+  let keptSig = null, lastKeptT = 0;
   for (let i=0; i<times.length; i++){
     const t = times[i];
     const pct = 42 + Math.round((i/times.length)*55);
@@ -467,9 +467,12 @@ async function run(){
       const sig = signature32();
       if (keptSig){
         const ch = changeScore(sig, keptSig);
-        if (!(ch.mean > 12 || ch.fraction > 0.15)) continue;
+        const changed = ch.mean > 12 || ch.fraction > 0.15;
+        const heartbeat = (t - lastKeptT) >= 45;   // piso: al menos una cada 45 s
+        if (!changed && !heartbeat) continue;
       }
       keptSig = sig;
+      lastKeptT = t;
     }
 
     const thumb = makeThumb();
@@ -546,7 +549,7 @@ function buildDoc(frames, tr, ocrOn, meta){
   if (meta.file) lines.push('Archivo. ' + meta.file);
   if (meta.duration != null) lines.push('Duración del video. ' + fmt(meta.duration));
   lines.push('Imágenes incluidas. ' + frames.length);
-  if (meta.interval) lines.push('Se revisó una imagen cada ' + meta.interval + ' segundos' + (meta.dedup ? ', guardando solo cuando la pantalla cambia de verdad.' : '.'));
+  if (meta.interval) lines.push('Se revisó una imagen cada ' + meta.interval + ' segundos' + (meta.dedup ? ', guardando los cambios de pantalla más una imagen cada 45 segundos.' : '.'));
   if (meta.model) lines.push('Transcripción. ' + meta.model + (meta.spoken ? ', idioma ' + meta.spoken : ''));
   lines.push('Texto en pantalla por OCR. ' + (ocrOn ? 'incluido, puede tener errores.' : 'no incluido, la IA lee las imágenes directamente.'));
   if (meta.total != null) lines.push('Tiempo de preparación. ' + clock(meta.total) + ' en total' + (meta.trMs > 300 ? ', ' + clock(meta.trMs) + ' la transcripción' : '') + (meta.framesMs != null ? ' y ' + clock(meta.framesMs) + ' las capturas' : '') + '.');
