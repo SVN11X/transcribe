@@ -57,7 +57,8 @@
   .frame{display:flex; gap:12px; align-items:flex-start; background:#FafbFc; border:1px solid var(--line); border-radius:10px; padding:9px}
   .frame img{width:120px; height:auto; border-radius:6px; flex:0 0 120px; background:#000}
   .frame .t{font-variant-numeric:tabular-nums; font-weight:600; font-size:13px; color:var(--accent); margin-bottom:3px}
-  .frame .ocr{font-size:13px; color:var(--ink); white-space:pre-wrap; word-break:break-word}
+  .frame .say{font-size:13.5px; color:var(--ink); white-space:pre-wrap; word-break:break-word}
+  .frame .ocr{font-size:12.5px; color:var(--muted); white-space:pre-wrap; word-break:break-word; margin-top:6px}
   .frame .ocr.empty{color:var(--muted); font-style:italic}
   .out textarea{min-height:220px; font-size:13px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; line-height:1.5}
   .out .row{margin-top:12px}
@@ -73,7 +74,7 @@
 <div class="wrap">
   <header>
     <h1>Preparar un video para dárselo a una IA</h1>
-    <p>Sube un video y esta página arma, ordenado por tiempo, lo que se ve en pantalla, lo que se dice y las imágenes mismas del video. Descargas todo en un ZIP listo para dárselo a una IA que pueda ver imágenes. Puede escribir la transcripción sola desde el audio, o puedes pegar la tuya. Todo ocurre en tu navegador, nada se sube a internet.</p>
+    <p>Sube un video y esta página arma, ordenado por tiempo, la transcripción de lo que se dice y una imagen de la pantalla en cada momento. Descargas todo en un ZIP para dárselo a una IA que pueda ver imágenes. La IA lee las imágenes directamente, así que el texto que de verdad importa es el audio transcrito. Todo ocurre en tu navegador, nada se sube a internet.</p>
   </header>
 
   <div class="step">
@@ -90,16 +91,17 @@
         <label class="field" for="interval">Tomar una imagen cada (segundos)</label>
         <input type="number" id="interval" value="5" min="1" step="1" />
       </div>
-      <div>
-        <label class="field" for="lang">Idioma del texto en pantalla</label>
-        <select id="lang">
-          <option value="spa">Español</option>
-          <option value="eng">Inglés</option>
-          <option value="spa+eng">Español e inglés</option>
-        </select>
-      </div>
     </div>
     <label class="check"><input type="checkbox" id="dedup" checked /><span>Saltar imágenes casi iguales a la anterior, para quedarme solo con los cambios de pantalla</span></label>
+    <label class="check"><input type="checkbox" id="useOCR" /><span>Leer además el texto de la pantalla con OCR. Normalmente <b>no hace falta</b>. Una IA que ve imágenes lee la pantalla mejor que el OCR, y en capturas densas el OCR sale con errores que ensucian el documento. Actívalo solo si vas a pegar el texto en una IA que no ve imágenes.</span></label>
+    <div id="ocrLangWrap" style="display:none; margin-top:10px">
+      <label class="field" for="lang">Idioma del texto en pantalla</label>
+      <select id="lang">
+        <option value="spa">Español</option>
+        <option value="eng">Inglés</option>
+        <option value="spa+eng">Español e inglés</option>
+      </select>
+    </div>
     <div id="estimate" class="hint"></div>
   </div>
 
@@ -187,12 +189,6 @@ const hashCanvas = $('hashCanvas'), hctx = hashCanvas.getContext('2d', {willRead
 let videoURL = null;
 let videoFile = null;
 let ready = false;
-let ocrAvailable = typeof Tesseract !== 'undefined';
-
-if (!ocrAvailable) {
-  $('loadBanner').innerHTML = '<div class="banner warn">No se pudo cargar el lector de texto en pantalla (OCR). Revisa tu conexión y recarga. Los cuadros del video igual se extraen, pero sin leer su texto.</div>';
-}
-
 // alternar opciones de transcripción
 document.querySelectorAll('input[name="src"]').forEach(r => {
   r.addEventListener('change', () => {
@@ -200,6 +196,10 @@ document.querySelectorAll('input[name="src"]').forEach(r => {
     $('autoOpts').style.display = auto ? '' : 'none';
     $('pasteOpts').style.display = auto ? 'none' : '';
   });
+});
+
+$('useOCR').addEventListener('change', () => {
+  $('ocrLangWrap').style.display = $('useOCR').checked ? '' : 'none';
 });
 
 // cargar video
@@ -403,7 +403,8 @@ async function run(){
 
   const step = Math.max(1, parseInt($('interval').value)||5);
   const dedup = $('dedup').checked;
-  const lang = $('lang').value;
+  const useOCR = $('useOCR').checked;
+  const lang = useOCR ? $('lang').value : 'spa';
   const source = document.querySelector('input[name="src"]:checked').value;
 
   // 1. transcripción
@@ -421,18 +422,23 @@ async function run(){
     tr = parseTranscript($('transcript').value);
   }
 
-  // 2. lector de texto en pantalla
-  if (ocrAvailable){
-    try {
-      setBar(40, 'Cargando el lector de texto...');
-      worker = await Tesseract.createWorker(lang, 1, {
-        workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/worker.min.js',
-        corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5',
-        langPath: 'https://tessdata.projectnaptha.com/4.0.0'
-      });
-    } catch(err){
-      ocrAvailable = false;
-      $('loadBanner').innerHTML += '<div class="banner warn">No se pudo iniciar el OCR. Se extraen las imágenes sin leer su texto.</div>';
+  // 2. lector de texto en pantalla (opcional, apagado por defecto)
+  let ocrOn = false;
+  if (useOCR){
+    if (typeof Tesseract === 'undefined'){
+      $('loadBanner').innerHTML += '<div class="banner warn">No se pudo cargar el OCR. Se siguen extrayendo las imágenes.</div>';
+    } else {
+      try {
+        setBar(40, 'Cargando el lector de texto...');
+        worker = await Tesseract.createWorker(lang, 1, {
+          workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/worker.min.js',
+          corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5',
+          langPath: 'https://tessdata.projectnaptha.com/4.0.0'
+        });
+        ocrOn = true;
+      } catch(err){
+        $('loadBanner').innerHTML += '<div class="banner warn">No se pudo iniciar el OCR. Se extraen las imágenes sin leer su texto.</div>';
+      }
     }
   }
 
@@ -446,7 +452,7 @@ async function run(){
     const pct = 42 + Math.round((i/times.length)*55);
     setBar(pct, 'Tomando imagen ' + (i+1) + ' de ' + times.length + ' (' + fmt(t) + ')');
     await seekTo(t);
-    drawOCRFrame(1200);
+    drawOCRFrame(1600);
 
     if (dedup){
       const sig = signature();
@@ -456,17 +462,18 @@ async function run(){
 
     const thumb = makeThumb();
     const name = 'frame-' + String(frames.length+1).padStart(3,'0') + '-' + fmtFile(t) + '.jpg';
-    const imgBlob = await canvasBlob(ocrCanvas, 0.82);
+    const imgBlob = await canvasBlob(ocrCanvas, 0.85);
     let ocrText = '';
-    if (ocrAvailable && worker){
+    if (ocrOn && worker){
       setBar(pct, 'Leyendo el texto de la imagen ' + (i+1) + '...');
       try {
         const res = await worker.recognize(ocrCanvas);
         ocrText = (res.data.text||'').replace(/\n{2,}/g,'\n').trim();
       } catch(e){ ocrText = ''; }
     }
+    const said = tr.timed ? tr.segments.filter(x => x.time >= t && x.time < t+step).map(x => x.text).join(' ') : '';
     frames.push({time:t, ocr:ocrText, thumb, name, imgBlob});
-    addFrameCard({time:t, ocr:ocrText, thumb});
+    addFrameCard({time:t, said, ocr:ocrText, ocrOn, thumb});
   }
 
   if (worker){ try { await worker.terminate(); } catch(e){} worker = null; }
@@ -474,7 +481,7 @@ async function run(){
   // 4. documento
   lastFrames = frames;
   setBar(98, 'Juntando todo...');
-  $('output').value = buildDoc(frames, tr);
+  $('output').value = buildDoc(frames, tr, ocrOn);
   $('outStep').style.display = 'block';
   setBar(100, 'Listo. ' + frames.length + ' imágenes procesadas.');
   $('run').disabled = false;
@@ -488,56 +495,45 @@ function setBar(pct, text){
 function addFrameCard(f){
   const div = document.createElement('div');
   div.className = 'frame';
-  const ocrHtml = f.ocr
-    ? '<div class="ocr">' + escapeHtml(f.ocr) + '</div>'
-    : '<div class="ocr empty">' + (ocrAvailable ? 'Sin texto detectado' : 'OCR no disponible') + '</div>';
-  div.innerHTML = '<img src="' + f.thumb + '" alt="cuadro" /><div><div class="t">' + fmt(f.time) + '</div>' + ocrHtml + '</div>';
+  let body = '<div class="t">' + fmt(f.time) + '</div>';
+  if (f.said) body += '<div class="say">' + escapeHtml(f.said) + '</div>';
+  if (f.ocrOn) body += '<div class="ocr">' + (f.ocr ? escapeHtml(f.ocr) : '<span style="font-style:italic">Sin texto</span>') + '</div>';
+  if (!f.said && !f.ocrOn) body += '<div class="ocr empty">El texto hablado va en el documento final. Mira la imagen para el contenido en pantalla.</div>';
+  div.innerHTML = '<img src="' + f.thumb + '" alt="cuadro" /><div>' + body + '</div>';
   $('timeline').appendChild(div);
 }
 function escapeHtml(s){ return s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 
 // documento final
-function buildDoc(frames, tr){
+function buildDoc(frames, tr, ocrOn){
   const lines = [];
-  lines.push('# Resumen del video para dar contexto a una IA');
+  lines.push('# Contexto del video para una IA');
   lines.push('');
-  lines.push('Este documento junta, ordenado por tiempo, lo que aparece en pantalla y lo que se dice en el video.');
+  lines.push('Ordenado por tiempo: lo que se dice en el audio y una imagen de la pantalla en cada momento. Las imágenes acompañan este texto. Míralas para ver el contenido de la pantalla.');
   lines.push('');
-
-  if (tr.timed){
-    const events = [];
-    for (const f of frames) events.push({time:f.time, kind:'pantalla', text:f.ocr, name:f.name});
-    for (const s of tr.segments) events.push({time:s.time, kind:'texto', text:s.text});
-    events.sort((a,b) => a.time - b.time);
-    lines.push('## Línea de tiempo');
+  lines.push('## Línea de tiempo');
+  lines.push('');
+  const events = [];
+  for (const f of frames){
+    events.push({time:f.time, kind:'img', name:f.name});
+    if (ocrOn && f.ocr) events.push({time:f.time+0.001, kind:'ocr', text:f.ocr.replace(/\n/g,' ')});
+  }
+  if (tr.timed) for (const s2 of tr.segments) events.push({time:s2.time, kind:'say', text:s2.text});
+  events.sort((a,b) => a.time - b.time);
+  let last = '';
+  for (const ev of events){
+    const label = fmt(ev.time);
+    if (label !== last){ lines.push('### ' + label); last = label; }
+    if (ev.kind === 'img') lines.push('Imagen. ' + ev.name);
+    else if (ev.kind === 'say') lines.push('Se dice. ' + ev.text);
+    else lines.push('En pantalla (OCR, puede tener errores). ' + ev.text);
     lines.push('');
-    let last = '';
-    for (const ev of events){
-      const label = fmt(ev.time);
-      if (label !== last){ lines.push('### ' + label); last = label; }
-      if (ev.kind === 'texto'){
-        lines.push('Se dice. ' + ev.text);
-      } else {
-        if (ev.name) lines.push('Imagen. ' + ev.name);
-        lines.push('En pantalla. ' + (ev.text ? ev.text.replace(/\n/g,' ') : '(sin texto detectado)'));
-      }
-      lines.push('');
-    }
-  } else {
-    lines.push('## Texto que aparece en pantalla, por tiempo');
+  }
+  if (!tr.timed && tr.whole){
+    lines.push('## Transcripción del video');
     lines.push('');
-    for (const f of frames){
-      lines.push('### ' + fmt(f.time));
-      if (f.name) lines.push('Imagen. ' + f.name);
-      lines.push('En pantalla. ' + (f.ocr ? f.ocr.replace(/\n/g,' ') : '(sin texto detectado)'));
-      lines.push('');
-    }
-    if (tr.whole){
-      lines.push('## Transcripción del video');
-      lines.push('');
-      lines.push(tr.whole);
-      lines.push('');
-    }
+    lines.push(tr.whole);
+    lines.push('');
   }
   return lines.join('\n');
 }
