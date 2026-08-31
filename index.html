@@ -92,7 +92,7 @@
         <input type="number" id="interval" value="5" min="1" step="1" />
       </div>
     </div>
-    <label class="check"><input type="checkbox" id="dedup" checked /><span>Saltar imágenes casi iguales a la anterior, para quedarme solo con los cambios de pantalla</span></label>
+    <label class="check"><input type="checkbox" id="dedup" checked /><span>Guardar una imagen solo cuando la pantalla cambia de verdad, por ejemplo al cambiar de diapositiva, compartir una planilla o hacer scroll. Salta las repeticiones y las caras que solo se mueven un poco.</span></label>
     <label class="check"><input type="checkbox" id="useOCR" /><span>Leer además el texto de la pantalla con OCR. Normalmente <b>no hace falta</b>. Una IA que ve imágenes lee la pantalla mejor que el OCR, y en capturas densas el OCR sale con errores que ensucian el documento. Actívalo solo si vas a pegar el texto en una IA que no ve imágenes.</span></label>
     <div id="ocrLangWrap" style="display:none; margin-top:10px">
       <label class="field" for="lang">Idioma del texto en pantalla</label>
@@ -232,8 +232,8 @@ function updateEstimate(){
   if (!ready) return;
   const step = Math.max(1, parseInt($('interval').value)||5);
   const n = Math.floor(vid.duration/step)+1;
-  let msg = 'Se tomarán alrededor de ' + n + ' imágenes.';
-  if (n > 120) msg += ' Son bastantes. Si va lento, sube el número de segundos.';
+  let msg = 'Se revisarán alrededor de ' + n + ' momentos. Con el guardado inteligente activo, quedan solo los que cambian, así que el documento tendrá bastantes menos imágenes.';
+  if (n > 300) msg += ' Aun así son muchos. Si va lento, sube los segundos.';
   $('estimate').textContent = msg;
 }
 
@@ -268,18 +268,20 @@ function makeThumb(){
   tctx.drawImage(ocrCanvas, 0, 0, w, h);
   return thumbCanvas.toDataURL('image/jpeg', 0.6);
 }
-function signature(){
-  const s = 16; hashCanvas.width = s; hashCanvas.height = s;
+function signature32(){
+  const s = 32; hashCanvas.width = s; hashCanvas.height = s;
   hctx.drawImage(ocrCanvas, 0, 0, s, s);
   const d = hctx.getImageData(0,0,s,s).data;
   const arr = new Uint8Array(s*s);
   for (let i=0;i<s*s;i++){ arr[i] = (d[i*4]*0.299 + d[i*4+1]*0.587 + d[i*4+2]*0.114)|0; }
   return arr;
 }
-function sigDiff(a,b){
-  if(!a||!b) return 999;
-  let sum=0; for(let i=0;i<a.length;i++) sum += Math.abs(a[i]-b[i]);
-  return sum/a.length;
+// mide cuánto cambió la pantalla frente al último cuadro guardado
+function changeScore(a,b){
+  if(!a||!b) return {mean:999, fraction:1};
+  let sum=0, changed=0; const CELL=18;
+  for(let i=0;i<a.length;i++){ const dd=Math.abs(a[i]-b[i]); sum+=dd; if(dd>CELL) changed++; }
+  return {mean:sum/a.length, fraction:changed/a.length};
 }
 
 // transcripción pegada
@@ -336,10 +338,10 @@ async function getPCM16k(file){
 // transcribir con Whisper en el navegador
 let asrModule = null;
 const MODELS = {
-  fast:  { id:'Xenova/whisper-tiny'  },
-  base:  { id:'Xenova/whisper-base'  },
-  small: { id:'Xenova/whisper-small' },
-  turbo: { id:'onnx-community/whisper-large-v3-turbo', big:true, dtype:{ encoder_model:'fp16', decoder_model_merged:'q4' } }
+  fast:  { id:'Xenova/whisper-tiny',  label:'Whisper tiny (rápido)' },
+  base:  { id:'Xenova/whisper-base',  label:'Whisper base (equilibrado)' },
+  small: { id:'Xenova/whisper-small', label:'Whisper small (preciso)' },
+  turbo: { id:'onnx-community/whisper-large-v3-turbo', big:true, dtype:{ encoder_model:'fp16', decoder_model_merged:'q4' }, label:'Whisper large v3 turbo (máxima calidad)' }
 };
 async function webgpuOK(){
   try { if (!('gpu' in navigator) || !navigator.gpu) return false; const a = await navigator.gpu.requestAdapter(); return !!a; }
@@ -381,11 +383,12 @@ async function transcribeAudio(pcm, quality, spoken, onStatus){
   const segs = (out.chunks||[])
     .filter(c => c.timestamp && c.timestamp[0]!=null && c.text && c.text.trim())
     .map(c => ({time:c.timestamp[0], text:c.text.trim()}));
+  const usedLabel = (MODELS[key] && MODELS[key].label) || 'Whisper';
   if (segs.length){
     const whole = segs.map(s => '[' + fmt(s.time) + '] ' + s.text).join('\n');
-    return {timed:true, segments:segs, whole};
+    return {timed:true, segments:segs, whole, model:usedLabel};
   }
-  return {timed:false, segments:[], whole:(out.text||'').trim()};
+  return {timed:false, segments:[], whole:(out.text||'').trim(), model:usedLabel};
 }
 
 // proceso principal
@@ -452,7 +455,7 @@ async function run(){
   const times = [];
   for (let t=0; t<=vid.duration; t+=step) times.push(t);
   const frames = [];
-  let prevSig = null;
+  let keptSig = null;
   for (let i=0; i<times.length; i++){
     const t = times[i];
     const pct = 42 + Math.round((i/times.length)*55);
@@ -461,9 +464,12 @@ async function run(){
     drawOCRFrame(1600);
 
     if (dedup){
-      const sig = signature();
-      if (prevSig && sigDiff(prevSig, sig) < 6){ prevSig = sig; continue; }
-      prevSig = sig;
+      const sig = signature32();
+      if (keptSig){
+        const ch = changeScore(sig, keptSig);
+        if (!(ch.mean > 12 || ch.fraction > 0.15)) continue;
+      }
+      keptSig = sig;
     }
 
     const thumb = makeThumb();
@@ -488,9 +494,19 @@ async function run(){
   // 4. documento
   lastFrames = frames;
   setBar(98, 'Juntando todo...');
-  $('output').value = buildDoc(frames, tr, ocrOn);
-  $('outStep').style.display = 'block';
   const total = performance.now() - tStart;
+  const spokenMap = {spanish:'español', english:'inglés', auto:'detectado automáticamente'};
+  const meta = {
+    file: videoFile ? videoFile.name : '',
+    duration: vid.duration,
+    interval: step,
+    dedup: dedup,
+    model: source === 'auto' ? (tr.model || 'modelo de voz en el navegador') : 'transcripción pegada por el usuario',
+    spoken: source === 'auto' ? (spokenMap[$('spoken').value] || $('spoken').value) : '',
+    total: total, trMs: trMs, framesMs: framesMs
+  };
+  $('output').value = buildDoc(frames, tr, ocrOn, meta);
+  $('outStep').style.display = 'block';
   setBar(100, 'Listo en ' + clock(total) + '. ' + frames.length + ' imágenes' + (trMs > 300 ? ', transcripción ' + clock(trMs) : '') + ', capturas ' + clock(framesMs) + '.');
   $('timer').textContent = 'Tiempo total ' + clock(total);
   $('outStep').scrollIntoView({behavior:'smooth', block:'start'});
@@ -521,11 +537,21 @@ function addFrameCard(f){
 function escapeHtml(s){ return s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 
 // documento final
-function buildDoc(frames, tr, ocrOn){
+function buildDoc(frames, tr, ocrOn, meta){
+  meta = meta || {};
   const lines = [];
   lines.push('# Contexto del video para una IA');
   lines.push('');
-  lines.push('Ordenado por tiempo: lo que se dice en el audio y una imagen de la pantalla en cada momento. Las imágenes acompañan este texto. Míralas para ver el contenido de la pantalla.');
+  lines.push('Datos de la preparación.');
+  if (meta.file) lines.push('Archivo. ' + meta.file);
+  if (meta.duration != null) lines.push('Duración del video. ' + fmt(meta.duration));
+  lines.push('Imágenes incluidas. ' + frames.length);
+  if (meta.interval) lines.push('Se revisó una imagen cada ' + meta.interval + ' segundos' + (meta.dedup ? ', guardando solo cuando la pantalla cambia de verdad.' : '.'));
+  if (meta.model) lines.push('Transcripción. ' + meta.model + (meta.spoken ? ', idioma ' + meta.spoken : ''));
+  lines.push('Texto en pantalla por OCR. ' + (ocrOn ? 'incluido, puede tener errores.' : 'no incluido, la IA lee las imágenes directamente.'));
+  if (meta.total != null) lines.push('Tiempo de preparación. ' + clock(meta.total) + ' en total' + (meta.trMs > 300 ? ', ' + clock(meta.trMs) + ' la transcripción' : '') + (meta.framesMs != null ? ' y ' + clock(meta.framesMs) + ' las capturas' : '') + '.');
+  lines.push('');
+  lines.push('Cómo leer esto. Más abajo va, ordenado por tiempo, lo que se dice en el audio y una imagen de la pantalla en cada momento. Las imágenes acompañan este texto, míralas para ver el contenido de la pantalla.');
   lines.push('');
   lines.push('## Línea de tiempo');
   lines.push('');
