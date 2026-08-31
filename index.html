@@ -147,6 +147,7 @@
     <div class="progress" id="progress">
       <div class="bar"><i id="barFill"></i></div>
       <div class="status" id="status">Preparando...</div>
+      <div class="status" id="timer" style="font-variant-numeric:tabular-nums"></div>
     </div>
     <div class="timeline" id="timeline"></div>
   </div>
@@ -400,7 +401,10 @@ async function run(){
   $('outStep').style.display = 'none';
   $('progress').style.display = 'block';
   setBar(0, 'Preparando...');
+  startTimer();
+  let trMs = 0, framesMs = 0;
 
+  try {
   const step = Math.max(1, parseInt($('interval').value)||5);
   const dedup = $('dedup').checked;
   const useOCR = $('useOCR').checked;
@@ -421,6 +425,7 @@ async function run(){
   } else {
     tr = parseTranscript($('transcript').value);
   }
+  trMs = performance.now() - tStart;
 
   // 2. lector de texto en pantalla (opcional, apagado por defecto)
   let ocrOn = false;
@@ -443,6 +448,7 @@ async function run(){
   }
 
   // 3. imágenes + OCR
+  const framesStart = performance.now();
   const times = [];
   for (let t=0; t<=vid.duration; t+=step) times.push(t);
   const frames = [];
@@ -477,21 +483,31 @@ async function run(){
   }
 
   if (worker){ try { await worker.terminate(); } catch(e){} worker = null; }
+  framesMs = performance.now() - framesStart;
 
   // 4. documento
   lastFrames = frames;
   setBar(98, 'Juntando todo...');
   $('output').value = buildDoc(frames, tr, ocrOn);
   $('outStep').style.display = 'block';
-  setBar(100, 'Listo. ' + frames.length + ' imágenes procesadas.');
-  $('run').disabled = false;
+  const total = performance.now() - tStart;
+  setBar(100, 'Listo en ' + clock(total) + '. ' + frames.length + ' imágenes' + (trMs > 300 ? ', transcripción ' + clock(trMs) : '') + ', capturas ' + clock(framesMs) + '.');
+  $('timer').textContent = 'Tiempo total ' + clock(total);
   $('outStep').scrollIntoView({behavior:'smooth', block:'start'});
+  } finally {
+    stopTimer();
+    $('run').disabled = false;
+  }
 }
 
 function setBar(pct, text){
   $('barFill').style.width = pct + '%';
   $('status').textContent = text;
 }
+let timerInt = null, tStart = 0;
+function clock(ms){ const s = Math.floor(ms/1000); return Math.floor(s/60) + ':' + String(s%60).padStart(2,'0'); }
+function startTimer(){ tStart = performance.now(); if (timerInt) clearInterval(timerInt); timerInt = setInterval(() => { $('timer').textContent = 'Tiempo transcurrido ' + clock(performance.now() - tStart); }, 500); }
+function stopTimer(){ if (timerInt){ clearInterval(timerInt); timerInt = null; } }
 function addFrameCard(f){
   const div = document.createElement('div');
   div.className = 'frame';
