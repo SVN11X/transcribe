@@ -150,7 +150,7 @@
         <button type="button" id="testServer" class="btn-ghost">Probar conexión</button>
         <span id="serverState" class="hint" style="margin:0"></span>
       </div>
-      <div class="hint">El audio viaja al servidor en trozos de menos de 30 segundos. Tu servidor solo lo transcribe, no guarda copias. La cuota gratis alcanza para unos 200 minutos de audio al día y se renueva a medianoche UTC, que en Chile son las 20:00 o 21:00 según la época del año.</div>
+      <div class="hint">El audio viaja al servidor en trozos de menos de 30 segundos. Tu servidor solo lo transcribe, no guarda copias. La cuota gratis alcanza para unos 200 minutos de audio al día con Cloudflare, y para unos 680 si el servidor también tiene la clave de Groq. Se renueva a medianoche UTC, que en Chile son las 20:00 o 21:00 según la época del año.</div>
     </div>
 
     <div id="autoOpts" class="sub" style="display:none">
@@ -720,7 +720,7 @@ async function deleteAll(){
 // ---------- transcripción en un servidor ----------
 // El computador no descarga ningún modelo. Envía el audio en trozos cortos al servidor
 // (el archivo servidor-cloudflare.js publicado en Cloudflare) y recibe el texto con sus tiempos.
-const SERVIDOR_POR_DEFECTO = 'https://transcribir.tu-cuenta.workers.dev';   // pega aquí la dirección de tu Worker para que nadie tenga que escribirla
+const SERVIDOR_POR_DEFECTO = 'https://transcribir.valde-transfer.workers.dev';   // pega aquí la dirección de tu Worker para que nadie tenga que escribirla
 const SR = 16000;
 const TROZO_MAX = 29.5, TROZO_MIN = 20;   // segundos por trozo
 const EN_PARALELO = 3;
@@ -780,7 +780,7 @@ function serverProblem(status, code, netFail){
   if (status === 403 || code === 'pagina-no-permitida') return 'El servidor no acepta esta página. Agrega su dirección en PAGINAS_PERMITIDAS dentro de servidor-cloudflare.js.';
   if (status === 401 || code === 'clave-incorrecta') return 'La clave no coincide con la del servidor.';
   if (code === 'falta-enlace-ai') return 'Al servidor le falta el enlace de Workers AI con el nombre AI.';
-  if (status === 429 || code === 'cuota-agotada') return 'Se acabó la cuota gratis de hoy. Se renueva a medianoche UTC.';
+  if (code === 'cuota-agotada') return 'Se acabó la cuota gratis de hoy en los servicios del servidor. Se renueva a medianoche UTC.';
   return 'El servidor respondió con un error (' + status + ').';
 }
 async function callServer(path, opts){
@@ -791,8 +791,9 @@ async function callServer(path, opts){
   try { data = await res.json(); } catch(e){}
   if (!res.ok){
     const err = new Error(serverProblem(res.status, data.error));
+    if (data.error === 'ocupado'){ err.wait = Math.max(1, Number(data.esperar) || 20); throw err; }
     err.retry = res.status >= 500 && data.error !== 'falta-enlace-ai';
-    err.fatal = [401, 403, 429].includes(res.status) || data.error === 'falta-enlace-ai';
+    err.fatal = [401, 403].includes(res.status) || ['falta-enlace-ai', 'cuota-agotada'].includes(data.error);
     throw err;
   }
   return data;
@@ -802,8 +803,11 @@ async function testServer(){
   if (!serverURL()){ st.textContent = 'Escribe primero la dirección del servidor.'; st.className = 'hint bad'; return; }
   st.textContent = 'Probando...'; st.className = 'hint';
   try {
-    await callServer('/', { method:'GET', headers: serverHeaders() });
-    st.textContent = 'Conectado. Listo para transcribir.'; st.className = 'hint ok';
+    const d = await callServer('/', { method:'GET', headers: serverHeaders() });
+    const s = d.servicios || [];
+    const nombres = s.map(x => x === 'groq' ? 'Groq' : 'Cloudflare');
+    st.textContent = 'Conectado. ' + (nombres.length > 1 ? 'Usa ' + nombres.join(' y ') + ', unos 680 minutos gratis al día.' : nombres.length ? 'Usa ' + nombres[0] + '.' : 'Listo para transcribir.');
+    st.className = 'hint ok';
   } catch(e){ st.textContent = e.message; st.className = 'hint bad'; }
 }
 
@@ -821,7 +825,8 @@ async function transcribeServer(pcm, spoken, onStatus){
     const t0 = a / SR;
     if (isSilent(pcm, a, b)) return [];
     const body = encodeWAV(pcm.subarray(a, b));
-    for (let tryN = 0; tryN < 3; tryN++){
+    let tries = 0, waits = 0;
+    while (true){
       try {
         const data = await callServer('/' + q, { method:'POST', headers: serverHeaders({'Content-Type':'audio/wav'}), body });
         const segs = (data.segments || [])
@@ -831,8 +836,18 @@ async function transcribeServer(pcm, spoken, onStatus){
         return segs;
       } catch(e){
         if (e.fatal){ fatal = fatal || e; throw e; }
-        if (!e.retry || tryN === 2) throw e;
-        await new Promise(r => setTimeout(r, 1500 * (tryN + 1)));
+        if (e.wait != null){
+          // el servicio pidió una pausa por su límite por minuto u hora
+          if (e.wait > 90 || ++waits > 30){
+            const f = new Error('Se llegó al límite por hora del servicio. Intenta de nuevo en unos ' + Math.max(1, Math.ceil(e.wait / 60)) + ' minutos.');
+            f.fatal = true; fatal = fatal || f; throw f;
+          }
+          onStatus('El servicio pidió una pausa corta, sigo en ' + Math.ceil(e.wait) + ' segundos.');
+          await new Promise(r => setTimeout(r, (e.wait + 1) * 1000));
+          continue;
+        }
+        if (!e.retry || ++tries >= 3) throw e;
+        await new Promise(r => setTimeout(r, 1500 * tries));
       }
     }
   }
@@ -850,13 +865,20 @@ async function transcribeServer(pcm, spoken, onStatus){
     }
   }
   await Promise.all(Array.from({length: Math.min(EN_PARALELO, pieces.length)}, lane));
-  if (fatal) throw fatal;
+  let stopped = '';
+  if (fatal){
+    // si ya había texto, se entrega lo transcrito y se marca dónde quedó cortado
+    if (!results.some(r => r && r.length)) throw fatal;
+    stopped = fatal.message;
+    const first = results.findIndex(r => r === undefined);
+    if (first >= 0) results[first] = [{time: pieces[first][0] / SR, text: '(Desde aquí no se transcribió el audio)'}];
+  }
 
   const segs = results.flat().filter(Boolean).sort((x, y) => x.time - y.time);
   const label = 'Whisper large v3 turbo en servidor';
-  if (!segs.length) return {timed:false, segments:[], whole:'', model:label, failed};
+  if (!segs.length) return {timed:false, segments:[], whole:'', model:label, failed, stopped};
   const whole = segs.map(s => '[' + fmt(s.time) + '] ' + s.text).join('\n');
-  return {timed:true, segments:segs, whole, model:label, failed};
+  return {timed:true, segments:segs, whole, model:label, failed, stopped};
 }
 
 // cambio entre servidor, navegador y texto pegado
@@ -873,7 +895,8 @@ function initModes(){
   const saved = lsGet('modo-transcripcion', 'server');
   const r = document.querySelector('input[name="src"][value="' + saved + '"]');
   if (r) r.checked = true;
-  $('serverUrl').value = lsGet('servidor-url', SERVIDOR_POR_DEFECTO);
+  const guardada = lsGet('servidor-url', '');
+  $('serverUrl').value = (guardada && !guardada.includes('tu-cuenta.workers.dev')) ? guardada : SERVIDOR_POR_DEFECTO;
   $('serverKey').value = lsGet('servidor-clave', '');
   document.querySelectorAll('input[name="src"]').forEach(x => x.addEventListener('change', () => {
     lsSet('modo-transcripcion', currentMode());
@@ -927,6 +950,7 @@ async function run(){
       tr = await transcribeServer(pcm, $('spoken').value, trStatus);
       setBar(38, 'Transcripción lista.');
       if (tr.failed) $('loadBanner').innerHTML += '<div class="banner warn">' + tr.failed + ' partes del audio no se pudieron transcribir y quedaron marcadas en el documento.</div>';
+      if (tr.stopped) $('loadBanner').innerHTML += '<div class="banner warn">La transcripción quedó incompleta. ' + escapeHtml(tr.stopped) + ' El documento marca desde dónde falta.</div>';
     } catch(err){
       $('loadBanner').innerHTML = '<div class="banner warn">No se pudo transcribir en el servidor. ' + escapeHtml(err.message || '') + ' Se sigue con las imágenes.</div>';
     }
