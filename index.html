@@ -107,16 +107,17 @@
         <label class="field" for="interval">Tomar una imagen cada (segundos)</label>
         <input type="number" id="interval" value="5" min="1" step="1" />
       </div>
-      <div>
-        <label class="field" for="lang">Idioma del texto en pantalla</label>
-        <select id="lang">
-          <option value="spa">Español</option>
-          <option value="eng">Inglés</option>
-          <option value="spa+eng">Español e inglés</option>
-        </select>
-      </div>
     </div>
-    <label class="check"><input type="checkbox" id="dedup" checked /><span>Saltar imágenes casi iguales a la anterior, para quedarme solo con los cambios de pantalla</span></label>
+    <label class="check"><input type="checkbox" id="dedup" checked /><span>Guardar una imagen cuando la pantalla cambia de verdad, por ejemplo al cambiar de diapositiva, compartir una planilla o hacer scroll, y al menos una cada 45 segundos para no perder nada. Salta las caras que solo se mueven un poco.</span></label>
+    <label class="check"><input type="checkbox" id="useOCR" /><span>Leer además el texto de la pantalla con OCR. Normalmente <b>no hace falta</b>. Una IA que ve imágenes lee la pantalla mejor que el OCR, y en capturas densas el OCR sale con errores que ensucian el documento. Actívalo solo si vas a pegar el texto en una IA que no ve imágenes. Ojo, el OCR descarga sus datos de idioma, así que déjalo apagado en computadores donde no se puede descargar.</span></label>
+    <div id="ocrLangWrap" style="display:none; margin-top:10px">
+      <label class="field" for="lang">Idioma del texto en pantalla</label>
+      <select id="lang">
+        <option value="spa">Español</option>
+        <option value="eng">Inglés</option>
+        <option value="spa+eng">Español e inglés</option>
+      </select>
+    </div>
     <div id="estimate" class="hint"></div>
   </div>
 
@@ -231,20 +232,6 @@ const hashCanvas = $('hashCanvas'), hctx = hashCanvas.getContext('2d', {willRead
 let videoURL = null;
 let videoFile = null;
 let ready = false;
-let ocrAvailable = typeof Tesseract !== 'undefined';
-
-if (!ocrAvailable) {
-  $('loadBanner').innerHTML = '<div class="banner warn">No se pudo cargar el lector de texto en pantalla (OCR). Revisa tu conexión y recarga. Los cuadros del video igual se extraen, pero sin leer su texto.</div>';
-}
-
-// alternar opciones de transcripción
-document.querySelectorAll('input[name="src"]').forEach(r => {
-  r.addEventListener('change', () => {
-    const auto = document.querySelector('input[name="src"]:checked').value === 'auto';
-    $('autoOpts').style.display = auto ? '' : 'none';
-    $('pasteOpts').style.display = auto ? 'none' : '';
-  });
-});
 
 $('useOCR').addEventListener('change', () => {
   $('ocrLangWrap').style.display = $('useOCR').checked ? '' : 'none';
@@ -391,10 +378,10 @@ const LIB_URL = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/di
 const HF = 'https://huggingface.co/';
 const MODEL_CACHE = 'transformers-cache';   // nombre que usa la librería para guardar
 const MODELS = {
-  fast:  { id:'Xenova/whisper-tiny'  },
-  base:  { id:'Xenova/whisper-base'  },
-  small: { id:'Xenova/whisper-small' },
-  turbo: { id:'onnx-community/whisper-large-v3-turbo', big:true, dtype:{ encoder_model:'fp16', decoder_model_merged:'q4' } }
+  fast:  { id:'Xenova/whisper-tiny',  name:'Rápido',      short:'tiny',  label:'Whisper tiny (rápido)' },
+  base:  { id:'Xenova/whisper-base',  name:'Equilibrado', short:'base',  label:'Whisper base (equilibrado)' },
+  small: { id:'Xenova/whisper-small', name:'Preciso',     short:'small', label:'Whisper small (preciso)' },
+  turbo: { id:'onnx-community/whisper-large-v3-turbo', big:true, dtype:{ encoder_model:'fp16', decoder_model_merged:'q4' }, name:'Máxima calidad', short:'large v3 turbo', label:'Whisper large v3 turbo (máxima calidad)' }
 };
 const ORDER = ['fast','base','small','turbo'];
 // terminación del nombre de archivo según la precisión del modelo, igual que en la librería
@@ -576,12 +563,335 @@ async function transcribeAudio(pcm, quality, spoken, onStatus){
   const segs = (out.chunks||[])
     .filter(c => c.timestamp && c.timestamp[0]!=null && c.text && c.text.trim())
     .map(c => ({time:c.timestamp[0], text:c.text.trim()}));
-  const usedLabel = (MODELS[key] && MODELS[key].label) || 'Whisper';
   if (segs.length){
     const whole = segs.map(s => '[' + fmt(s.time) + '] ' + s.text).join('\n');
-    return {timed:true, segments:segs, whole};
+    return {timed:true, segments:segs, whole, model:t.label, notSaved:!t.saved};
   }
-  return {timed:false, segments:[], whole:(out.text||'').trim()};
+  return {timed:false, segments:[], whole:(out.text||'').trim(), model:t.label, notSaved:!t.saved};
+}
+
+// ---------- panel de modelos guardados ----------
+let busy = false, busyKey = null;
+function setBusy(b){
+  busy = b;
+  $('run').disabled = b || !ready;
+  document.querySelectorAll('.models button').forEach(x => { x.disabled = b; });
+}
+const rowEls = {};
+const optBase = {};
+function buildRows(){
+  document.querySelectorAll('#quality option').forEach(o => { optBase[o.value] = o.textContent; });
+  const box = $('modelRows');
+  box.innerHTML = '';
+  for (const key of ORDER){
+    const m = MODELS[key];
+    const row = document.createElement('div');
+    row.className = 'mrow';
+    row.innerHTML = '<div class="mname">' + m.name + ' <span class="msub">' + m.short + '</span><small class="mstate">Revisando...</small></div><button type="button" class="btn-ghost" style="display:none"></button>';
+    const btn = row.querySelector('button');
+    btn.addEventListener('click', () => { if (btn.dataset.act === 'del') deleteModel(key); else if (btn.dataset.act === 'save') saveModel(key); });
+    box.appendChild(row);
+    rowEls[key] = {state: row.querySelector('.mstate'), btn};
+  }
+  $('clearAll').addEventListener('click', deleteAll);
+}
+function setRow(key, text, cls, act){
+  const r = rowEls[key];
+  r.state.textContent = text;
+  r.state.className = 'mstate' + (cls ? ' ' + cls : '');
+  if (!act){ r.btn.style.display = 'none'; r.btn.dataset.act = ''; return; }
+  r.btn.style.display = '';
+  r.btn.dataset.act = act;
+  r.btn.textContent = act === 'del' ? 'Borrar' : act === 'busy' ? 'Guardando...' : 'Guardar';
+  r.btn.className = act === 'save' ? 'btn-line' : 'btn-ghost';
+  r.btn.disabled = busy;
+}
+function setOption(key, size, saved, unavailable){
+  const o = document.querySelector('#quality option[value="' + key + '"]');
+  if (!o) return;
+  const m = MODELS[key];
+  if (unavailable){ o.textContent = m.name + ' (' + m.short + ', no disponible en este navegador)'; return; }
+  if (size == null){ o.textContent = optBase[key] + (saved ? ', guardado' : ''); return; }
+  o.textContent = m.name + ' (' + m.short + ', ' + fmtBytes(size) + ')' + (saved ? ', guardado' : '');
+}
+
+async function renderModels(){
+  const c = await openModelCache();
+  if (!c){
+    $('modelRows').style.display = 'none';
+    $('clearAll').style.display = 'none';
+    $('modelsFoot').innerHTML = '<span class="bad">Este navegador no deja guardar el modelo aquí, así que se descarga cada vez. Pasa si abriste la página directo desde un archivo del computador. Ábrela desde su dirección de GitHub Pages.</span>';
+    return;
+  }
+  const g = await getGpu();
+  const device = g.ok ? 'webgpu' : 'wasm';
+  let anyFile = false;
+  for (const key of ORDER){
+    const m = MODELS[key];
+    const exists = await hasAnyFile(m, c);
+    if (exists) anyFile = true;
+    if (key === busyKey) continue;
+    if (m.big && !bigOK(g)){
+      setOption(key, null, false, true);
+      setRow(key, 'Necesita Chrome o Edge de computador con una tarjeta gráfica compatible.', '', exists ? 'del' : null);
+      continue;
+    }
+    const s = await savedCount(m, device, c);
+    if (s.have === s.need){
+      const b = (await savedBytes(m, device, c)) || (await remoteSize(m, device));
+      setRow(key, 'Guardado' + (b ? ', ocupa ' + fmtBytes(b) : '') + '.', 'ok', 'del');
+      setOption(key, b, true);
+    } else {
+      const partial = exists;
+      setRow(key, partial ? 'Guardado a medias.' : 'No guardado.', '', 'save');
+      setOption(key, null, false);
+      remoteSize(m, device).then(b => {
+        if (!b || key === busyKey || rowEls[key].btn.dataset.act !== 'save') return;
+        setRow(key, (partial ? 'Guardado a medias. Completo pesa ' : 'No guardado. Pesa ') + fmtBytes(b) + '.', '', 'save');
+        setOption(key, b, false);
+      });
+    }
+  }
+  $('clearAll').style.display = anyFile ? '' : 'none';
+  $('clearAll').disabled = busy;
+  await renderStorage();
+}
+async function renderStorage(){
+  const parts = [];
+  try {
+    if (navigator.storage && navigator.storage.estimate){
+      const e = await navigator.storage.estimate();
+      if (e && e.usage != null) parts.push('En total esta página ocupa ' + fmtBytes(e.usage) + ' en tu navegador.');
+    }
+  } catch(e){}
+  try {
+    if (navigator.storage && navigator.storage.persisted){
+      parts.push((await navigator.storage.persisted())
+        ? 'El navegador aceptó mantenerlo guardado aunque el disco se llene.'
+        : 'Queda guardado hasta que borres los datos del sitio. Si el disco se llena, el navegador podría borrarlo.');
+    }
+  } catch(e){}
+  parts.push('En una ventana de incógnito se borra al cerrarla, y Safari lo borra si pasas varios días sin abrir la página.');
+  $('modelsFoot').textContent = parts.join(' ');
+}
+
+async function saveModel(key){
+  if (busy) return;
+  busyKey = key;
+  setBusy(true);
+  setRow(key, 'Preparando...', '', 'busy');
+  $('modelsMsg').innerHTML = '';
+  try { if (navigator.storage && navigator.storage.persist) await navigator.storage.persist(); } catch(e){}
+  let problem = null;
+  try {
+    const t = await getTranscriber(key, (text, pct, short) => setRow(key, short || text, '', 'busy'));
+    if (!t.saved) problem = 'El navegador no dejó guardar este modelo, seguramente por falta de espacio en el disco o por estar en incógnito.';
+  } catch(e){
+    problem = 'No se pudo descargar el modelo. Revisa la conexión a internet y vuelve a intentarlo.';
+  }
+  busyKey = null;
+  setBusy(false);
+  await renderModels();
+  if (problem) $('modelsMsg').innerHTML = '<div class="banner warn">' + problem + '</div>';
+}
+async function deleteModel(key){
+  if (busy) return;
+  const m = MODELS[key];
+  if (!confirm('¿Borrar el modelo ' + m.name.toLowerCase() + ' de este navegador? Para volver a usarlo se descarga de nuevo.')) return;
+  if (loaded && loaded.label === m.label) await dropLoaded();
+  const c = await openModelCache();
+  if (c){
+    for (const r of await c.keys()) if (r.url.startsWith(HF + m.id + '/')) await c.delete(r);
+  }
+  clearRecs(m.id);
+  $('modelsMsg').innerHTML = '';
+  await renderModels();
+}
+async function deleteAll(){
+  if (busy) return;
+  if (!confirm('¿Borrar todos los modelos de voz de este navegador? Para volver a usarlos se descargan de nuevo.')) return;
+  await dropLoaded();
+  try { await caches.delete(MODEL_CACHE); } catch(e){}
+  for (const k of ORDER) clearRecs(MODELS[k].id);
+  $('modelsMsg').innerHTML = '';
+  await renderModels();
+}
+
+// ---------- transcripción en un servidor ----------
+// El computador no descarga ningún modelo. Envía el audio en trozos cortos al servidor
+// (el archivo servidor-cloudflare.js publicado en Cloudflare) y recibe el texto con sus tiempos.
+const SERVIDOR_POR_DEFECTO = 'https://transcribir.tu-cuenta.workers.dev';   // pega aquí la dirección de tu Worker para que nadie tenga que escribirla
+const SR = 16000;
+const TROZO_MAX = 29.5, TROZO_MIN = 20;   // segundos por trozo
+const EN_PARALELO = 3;
+
+function lsGet(k, d){ try { const v = localStorage.getItem(k); return v == null ? d : v; } catch(e){ return d; } }
+function lsSet(k, v){ try { localStorage.setItem(k, v); } catch(e){} }
+function serverURL(){ return ($('serverUrl').value || '').trim().replace(/\/+$/, ''); }
+function serverHeaders(extra){
+  const h = Object.assign({}, extra || {});
+  const k = ($('serverKey').value || '').trim();
+  if (k) h['X-Clave'] = k;
+  return h;
+}
+
+// corta el audio en trozos de menos de 30 segundos, buscando una pausa cerca de cada corte
+function splitPCM(pcm){
+  const out = [];
+  const frame = Math.round(SR * 0.1);
+  let start = 0;
+  while (start < pcm.length){
+    const maxEnd = start + Math.round(TROZO_MAX * SR);
+    if (maxEnd >= pcm.length){ out.push([start, pcm.length]); break; }
+    let best = maxEnd, bestE = Infinity;
+    for (let p = start + Math.round(TROZO_MIN * SR); p + frame <= maxEnd; p += frame){
+      let e = 0;
+      for (let i = p; i < p + frame; i++) e += pcm[i] * pcm[i];
+      if (e <= bestE){ bestE = e; best = p + (frame >> 1); }
+    }
+    out.push([start, best]);
+    start = best;
+  }
+  return out;
+}
+function isSilent(pcm, a, b){
+  let e = 0, n = 0;
+  for (let i = a; i < b; i += 4){ e += pcm[i] * pcm[i]; n++; }
+  return Math.sqrt(e / Math.max(1, n)) < 0.002;
+}
+function encodeWAV(samples){
+  const buf = new ArrayBuffer(44 + samples.length * 2);
+  const v = new DataView(buf);
+  const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, 'RIFF'); v.setUint32(4, 36 + samples.length * 2, true); w(8, 'WAVE');
+  w(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, SR, true); v.setUint32(28, SR * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  w(36, 'data'); v.setUint32(40, samples.length * 2, true);
+  for (let i = 0; i < samples.length; i++){
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return buf;
+}
+
+// traduce los errores del servidor a algo que se pueda resolver
+function serverProblem(status, code, netFail){
+  if (netFail) return 'No se pudo conectar con el servidor. Revisa la dirección. Si está bien, puede que la red de este computador bloquee esa dirección.';
+  if (status === 403 || code === 'pagina-no-permitida') return 'El servidor no acepta esta página. Agrega su dirección en PAGINAS_PERMITIDAS dentro de servidor-cloudflare.js.';
+  if (status === 401 || code === 'clave-incorrecta') return 'La clave no coincide con la del servidor.';
+  if (code === 'falta-enlace-ai') return 'Al servidor le falta el enlace de Workers AI con el nombre AI.';
+  if (status === 429 || code === 'cuota-agotada') return 'Se acabó la cuota gratis de hoy. Se renueva a medianoche UTC.';
+  return 'El servidor respondió con un error (' + status + ').';
+}
+async function callServer(path, opts){
+  let res;
+  try { res = await fetch(serverURL() + path, opts); }
+  catch(e){ const err = new Error(serverProblem(0, '', true)); err.retry = true; throw err; }
+  let data = {};
+  try { data = await res.json(); } catch(e){}
+  if (!res.ok){
+    const err = new Error(serverProblem(res.status, data.error));
+    err.retry = res.status >= 500 && data.error !== 'falta-enlace-ai';
+    err.fatal = [401, 403, 429].includes(res.status) || data.error === 'falta-enlace-ai';
+    throw err;
+  }
+  return data;
+}
+async function testServer(){
+  const st = $('serverState');
+  if (!serverURL()){ st.textContent = 'Escribe primero la dirección del servidor.'; st.className = 'hint bad'; return; }
+  st.textContent = 'Probando...'; st.className = 'hint';
+  try {
+    await callServer('/', { method:'GET', headers: serverHeaders() });
+    st.textContent = 'Conectado. Listo para transcribir.'; st.className = 'hint ok';
+  } catch(e){ st.textContent = e.message; st.className = 'hint bad'; }
+}
+
+async function transcribeServer(pcm, spoken, onStatus){
+  if (!serverURL()) throw new Error('Falta la dirección del servidor en el paso 3.');
+  const langMap = {spanish:'es', english:'en'};
+  const q = langMap[spoken] ? '?idioma=' + langMap[spoken] : '';
+  const pieces = splitPCM(pcm);
+  const results = new Array(pieces.length);
+  let next = 0, done = 0, failed = 0, fatal = null;
+  onStatus('Enviando el audio al servidor, 0 de ' + pieces.length + ' partes.', 0);
+
+  async function one(i){
+    const [a, b] = pieces[i];
+    const t0 = a / SR;
+    if (isSilent(pcm, a, b)) return [];
+    const body = encodeWAV(pcm.subarray(a, b));
+    for (let tryN = 0; tryN < 3; tryN++){
+      try {
+        const data = await callServer('/' + q, { method:'POST', headers: serverHeaders({'Content-Type':'audio/wav'}), body });
+        const segs = (data.segments || [])
+          .filter(s => s && s.text && s.text.trim())
+          .map(s => ({time: t0 + (Number(s.start) || 0), text: s.text.trim()}));
+        if (!segs.length && data.text && data.text.trim()) segs.push({time: t0, text: data.text.trim()});
+        return segs;
+      } catch(e){
+        if (e.fatal){ fatal = fatal || e; throw e; }
+        if (!e.retry || tryN === 2) throw e;
+        await new Promise(r => setTimeout(r, 1500 * (tryN + 1)));
+      }
+    }
+  }
+  async function lane(){
+    while (next < pieces.length && !fatal){
+      const i = next++;
+      try { results[i] = await one(i); }
+      catch(e){
+        if (e.fatal) return;
+        failed++;
+        results[i] = [{time: pieces[i][0] / SR, text: '(No se pudo transcribir este tramo)'}];
+      }
+      done++;
+      onStatus('Transcribiendo en el servidor, ' + done + ' de ' + pieces.length + ' partes.', done / pieces.length * 100);
+    }
+  }
+  await Promise.all(Array.from({length: Math.min(EN_PARALELO, pieces.length)}, lane));
+  if (fatal) throw fatal;
+
+  const segs = results.flat().filter(Boolean).sort((x, y) => x.time - y.time);
+  const label = 'Whisper large v3 turbo en servidor';
+  if (!segs.length) return {timed:false, segments:[], whole:'', model:label, failed};
+  const whole = segs.map(s => '[' + fmt(s.time) + '] ' + s.text).join('\n');
+  return {timed:true, segments:segs, whole, model:label, failed};
+}
+
+// cambio entre servidor, navegador y texto pegado
+function currentMode(){ return document.querySelector('input[name="src"]:checked').value; }
+function showMode(mode){
+  $('spokenWrap').style.display = mode === 'paste' ? 'none' : '';
+  $('serverOpts').style.display = mode === 'server' ? '' : 'none';
+  $('autoOpts').style.display = mode === 'auto' ? '' : 'none';
+  $('pasteOpts').style.display = mode === 'paste' ? '' : 'none';
+  // el panel de modelos solo se revisa si se eligió el navegador, así en modo servidor no hay ninguna consulta a Hugging Face
+  if (mode === 'auto') renderModels();
+}
+function initModes(){
+  const saved = lsGet('modo-transcripcion', 'server');
+  const r = document.querySelector('input[name="src"][value="' + saved + '"]');
+  if (r) r.checked = true;
+  $('serverUrl').value = lsGet('servidor-url', SERVIDOR_POR_DEFECTO);
+  $('serverKey').value = lsGet('servidor-clave', '');
+  document.querySelectorAll('input[name="src"]').forEach(x => x.addEventListener('change', () => {
+    lsSet('modo-transcripcion', currentMode());
+    showMode(currentMode());
+  }));
+  $('serverUrl').addEventListener('change', () => { lsSet('servidor-url', serverURL()); $('serverState').textContent = ''; });
+  $('serverKey').addEventListener('change', () => lsSet('servidor-clave', ($('serverKey').value || '').trim()));
+  $('testServer').addEventListener('click', testServer);
+  showMode(currentMode());
+}
+
+// el OCR se carga solo cuando se usa
+function loadScript(url){
+  return new Promise((ok, fail) => {
+    const s = document.createElement('script');
+    s.src = url; s.onload = ok; s.onerror = fail;
+    document.head.appendChild(s);
+  });
 }
 
 // proceso principal
@@ -636,18 +946,26 @@ async function run(){
   }
   trMs = performance.now() - tStart;
 
-  // 2. lector de texto en pantalla
-  if (ocrAvailable){
-    try {
-      setBar(40, 'Cargando el lector de texto...');
-      worker = await Tesseract.createWorker(lang, 1, {
-        workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/worker.min.js',
-        corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5',
-        langPath: 'https://tessdata.projectnaptha.com/4.0.0'
-      });
-    } catch(err){
-      ocrAvailable = false;
-      $('loadBanner').innerHTML += '<div class="banner warn">No se pudo iniciar el OCR. Se extraen las imágenes sin leer su texto.</div>';
+  // 2. lector de texto en pantalla (opcional, apagado por defecto)
+  let ocrOn = false;
+  if (useOCR){
+    if (typeof Tesseract === 'undefined'){
+      try { await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'); } catch(e){}
+    }
+    if (typeof Tesseract === 'undefined'){
+      $('loadBanner').innerHTML += '<div class="banner warn">No se pudo cargar el OCR. Se siguen extrayendo las imágenes.</div>';
+    } else {
+      try {
+        setBar(40, 'Cargando el lector de texto...');
+        worker = await Tesseract.createWorker(lang, 1, {
+          workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/worker.min.js',
+          corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5',
+          langPath: 'https://tessdata.projectnaptha.com/4.0.0'
+        });
+        ocrOn = true;
+      } catch(err){
+        $('loadBanner').innerHTML += '<div class="banner warn">No se pudo iniciar el OCR. Se extraen las imágenes sin leer su texto.</div>';
+      }
     }
   }
 
@@ -698,11 +1016,27 @@ async function run(){
   // 4. documento
   lastFrames = frames;
   setBar(98, 'Juntando todo...');
-  $('output').value = buildDoc(frames, tr);
+  const total = performance.now() - tStart;
+  const spokenMap = {spanish:'español', english:'inglés', auto:'detectado automáticamente'};
+  const meta = {
+    file: videoFile ? videoFile.name : '',
+    duration: vid.duration,
+    interval: step,
+    dedup: dedup,
+    model: source === 'paste' ? 'transcripción pegada por el usuario' : (tr.model || 'modelo de voz'),
+    spoken: source === 'paste' ? '' : (spokenMap[$('spoken').value] || $('spoken').value),
+    total: total, trMs: trMs, framesMs: framesMs
+  };
+  $('output').value = buildDoc(frames, tr, ocrOn, meta);
   $('outStep').style.display = 'block';
   setBar(100, 'Listo en ' + clock(total) + '. ' + frames.length + ' imágenes' + (trMs > 300 ? ', transcripción ' + clock(trMs) : '') + ', capturas ' + clock(framesMs) + '.');
   $('timer').textContent = 'Tiempo total ' + clock(total);
   $('outStep').scrollIntoView({behavior:'smooth', block:'start'});
+  } finally {
+    stopTimer();
+    setBusy(false);
+    if (currentMode() === 'auto') renderModels();
+  }
 }
 
 function setBar(pct, text){
@@ -729,45 +1063,42 @@ function escapeHtml(s){ return s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;'
 function buildDoc(frames, tr, ocrOn, meta){
   meta = meta || {};
   const lines = [];
-  lines.push('# Resumen del video para dar contexto a una IA');
+  lines.push('# Contexto del video para una IA');
   lines.push('');
-  lines.push('Este documento junta, ordenado por tiempo, lo que aparece en pantalla y lo que se dice en el video.');
+  lines.push('Datos de la preparación.');
+  if (meta.file) lines.push('Archivo. ' + meta.file);
+  if (meta.duration != null) lines.push('Duración del video. ' + fmt(meta.duration));
+  lines.push('Imágenes incluidas. ' + frames.length);
+  if (meta.interval) lines.push('Se revisó una imagen cada ' + meta.interval + ' segundos' + (meta.dedup ? ', guardando los cambios de pantalla más una imagen cada 45 segundos.' : '.'));
+  if (meta.model) lines.push('Transcripción. ' + meta.model + (meta.spoken ? ', idioma ' + meta.spoken : ''));
+  lines.push('Texto en pantalla por OCR. ' + (ocrOn ? 'incluido, puede tener errores.' : 'no incluido, la IA lee las imágenes directamente.'));
+  if (meta.total != null) lines.push('Tiempo de preparación. ' + clock(meta.total) + ' en total' + (meta.trMs > 300 ? ', ' + clock(meta.trMs) + ' la transcripción' : '') + (meta.framesMs != null ? ' y ' + clock(meta.framesMs) + ' las capturas' : '') + '.');
   lines.push('');
-
-  if (tr.timed){
-    const events = [];
-    for (const f of frames) events.push({time:f.time, kind:'pantalla', text:f.ocr, name:f.name});
-    for (const s of tr.segments) events.push({time:s.time, kind:'texto', text:s.text});
-    events.sort((a,b) => a.time - b.time);
-    lines.push('## Línea de tiempo');
+  lines.push('Cómo leer esto. Más abajo va, ordenado por tiempo, lo que se dice en el audio y una imagen de la pantalla en cada momento. Las imágenes acompañan este texto, míralas para ver el contenido de la pantalla.');
+  lines.push('');
+  lines.push('## Línea de tiempo');
+  lines.push('');
+  const events = [];
+  for (const f of frames){
+    events.push({time:f.time, kind:'img', name:f.name});
+    if (ocrOn && f.ocr) events.push({time:f.time+0.001, kind:'ocr', text:f.ocr.replace(/\n/g,' ')});
+  }
+  if (tr.timed) for (const s2 of tr.segments) events.push({time:s2.time, kind:'say', text:s2.text});
+  events.sort((a,b) => a.time - b.time);
+  let last = '';
+  for (const ev of events){
+    const label = fmt(ev.time);
+    if (label !== last){ lines.push('### ' + label); last = label; }
+    if (ev.kind === 'img') lines.push('Imagen. ' + ev.name);
+    else if (ev.kind === 'say') lines.push('Se dice. ' + ev.text);
+    else lines.push('En pantalla (OCR, puede tener errores). ' + ev.text);
     lines.push('');
-    let last = '';
-    for (const ev of events){
-      const label = fmt(ev.time);
-      if (label !== last){ lines.push('### ' + label); last = label; }
-      if (ev.kind === 'texto'){
-        lines.push('Se dice. ' + ev.text);
-      } else {
-        if (ev.name) lines.push('Imagen. ' + ev.name);
-        lines.push('En pantalla. ' + (ev.text ? ev.text.replace(/\n/g,' ') : '(sin texto detectado)'));
-      }
-      lines.push('');
-    }
-  } else {
-    lines.push('## Texto que aparece en pantalla, por tiempo');
+  }
+  if (!tr.timed && tr.whole){
+    lines.push('## Transcripción del video');
     lines.push('');
-    for (const f of frames){
-      lines.push('### ' + fmt(f.time));
-      if (f.name) lines.push('Imagen. ' + f.name);
-      lines.push('En pantalla. ' + (f.ocr ? f.ocr.replace(/\n/g,' ') : '(sin texto detectado)'));
-      lines.push('');
-    }
-    if (tr.whole){
-      lines.push('## Transcripción del video');
-      lines.push('');
-      lines.push(tr.whole);
-      lines.push('');
-    }
+    lines.push(tr.whole);
+    lines.push('');
   }
   return lines.join('\n');
 }
