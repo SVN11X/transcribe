@@ -3,219 +3,583 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="light dark" />
+<meta name="theme-color" content="#F1F3F6" media="(prefers-color-scheme: light)" />
+<meta name="theme-color" content="#0F1317" media="(prefers-color-scheme: dark)" />
+<meta name="description" content="Convierte un video en una línea de tiempo con su transcripción y capturas de pantalla, lista para dársela a una IA." />
 <title>Preparar video para una IA</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230F5C6E'/%3E%3Crect x='6' y='9' width='20' height='14' rx='2.5' fill='none' stroke='%23fff' stroke-width='2'/%3E%3Cpath d='M14 13v6l5-3z' fill='%23fff'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
+  @font-face{font-family:"IBM Plex Sans";font-style:normal;font-weight:400;font-display:swap;src:url(https://cdn.jsdelivr.net/npm/@fontsource/ibm-plex-sans@5.3.0/files/ibm-plex-sans-latin-400-normal.woff2) format("woff2")}
+  @font-face{font-family:"IBM Plex Sans";font-style:normal;font-weight:500;font-display:swap;src:url(https://cdn.jsdelivr.net/npm/@fontsource/ibm-plex-sans@5.3.0/files/ibm-plex-sans-latin-500-normal.woff2) format("woff2")}
+  @font-face{font-family:"IBM Plex Sans";font-style:normal;font-weight:600;font-display:swap;src:url(https://cdn.jsdelivr.net/npm/@fontsource/ibm-plex-sans@5.3.0/files/ibm-plex-sans-latin-600-normal.woff2) format("woff2")}
+
   :root{
-    --canvas:#EEF0F3; --surface:#FFFFFF; --ink:#171A1F; --muted:#5C6572;
-    --line:#E1E4E9; --accent:#3A47D5; --amber:#9A5B12; --ok:#1F8A5B; --warn:#B4471F;
-    --radius:14px;
+    --bg:#F1F3F6; --surface:#FFFFFF; --sunken:#F6F7F9;
+    --ink:#12161C; --muted:#5A6472; --faint:#8B95A1;
+    --line:#DCE0E6; --line-strong:#C3CAD3;
+    --accent:#0F5C6E; --accent-hover:#0A4856; --accent-soft:#E3EFF2; --on-accent:#FFFFFF;
+    --rec:#D9473F; --ok:#1C7C52; --warn:#A44E18; --warn-soft:#FBEEE4; --info:#2A4A6B; --info-soft:#E8EEF6;
+    --r-panel:12px; --r-ctl:8px; --r-chip:6px;
+    --font:"IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#0F1317; --surface:#161B20; --sunken:#12171B;
+      --ink:#E7EBEE; --muted:#9BA6B2; --faint:#6E7884;
+      --line:#262E36; --line-strong:#38424C;
+      --accent:#5DB8CB; --accent-hover:#82CBDA; --accent-soft:#14323A; --on-accent:#04222A;
+      --rec:#F06A61; --ok:#5CC491; --warn:#F2A46E; --warn-soft:#35221A; --info:#A9C4E6; --info-soft:#17233A;
+    }
+  }
+
   *{box-sizing:border-box}
-  html,body{margin:0}
-  body{
-    background:var(--canvas); color:var(--ink);
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-    font-size:15px; line-height:1.5; -webkit-font-smoothing:antialiased;
+  [hidden]{display:none !important}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0; background:var(--bg); color:var(--ink); font-family:var(--font); font-size:15px; line-height:1.55; -webkit-font-smoothing:antialiased}
+  fieldset{border:0; margin:0; padding:0; min-width:0}
+  .vh{position:absolute !important; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0}
+  .wrap{max-width:760px; margin:0 auto; padding:40px 20px 64px}
+
+  /* encabezado */
+  .intro h1{font-size:30px; line-height:1.15; font-weight:600; letter-spacing:-.018em; margin:0 0 12px; max-width:24ch; text-wrap:balance}
+  .intro p{margin:0 0 12px; color:var(--muted); max-width:62ch}
+  .privacy{display:flex; gap:9px; align-items:flex-start; font-size:13.5px}
+  .privacy svg{flex:0 0 16px; width:16px; height:16px; margin-top:2px; color:var(--accent)}
+
+  /* pasos */
+  .steps{margin-top:36px}
+  .step{display:grid; grid-template-columns:30px minmax(0,1fr); column-gap:18px}
+  .rail{position:relative; display:flex; justify-content:center}
+  .rail::after{content:""; position:absolute; top:38px; bottom:6px; left:50%; width:1px; background:var(--line-strong)}
+  .step.end .rail::after{display:none}
+  .num{position:relative; z-index:1; width:30px; height:30px; border-radius:50%; display:grid; place-items:center; font-size:13.5px; font-weight:600; font-variant-numeric:tabular-nums; background:var(--surface); border:1px solid var(--line-strong); color:var(--muted); transition:background-color .2s, border-color .2s, color .2s}
+  .num svg{display:none; width:15px; height:15px}
+  .step.done .num{background:var(--accent); border-color:var(--accent); color:var(--on-accent)}
+  .step.done .num .n{display:none}
+  .step.done .num svg{display:block}
+  .body{padding:3px 0 36px}
+  .body > h2{font-size:17px; font-weight:600; line-height:1.35; margin:0 0 2px}
+  .lead{margin:0 0 14px; color:var(--muted); font-size:14px}
+
+  /* zona para soltar el video */
+  .drop{display:flex; flex-direction:column; align-items:center; gap:6px; text-align:center; padding:32px 20px; border:1.5px dashed var(--line-strong); border-radius:var(--r-panel); background:var(--surface); cursor:pointer; transition:border-color .15s, background-color .15s}
+  .drop:hover, body.dragging .drop{border-color:var(--accent)}
+  body.dragging .drop{border-style:solid; background:var(--accent-soft)}
+  #video:focus-visible + .drop{outline:2px solid var(--accent); outline-offset:2px}
+  .drop svg{width:30px; height:30px; color:var(--accent); margin-bottom:4px}
+  .drop-title{font-weight:500; font-size:15.5px}
+  .drop-title u{color:var(--accent); text-underline-offset:3px; text-decoration-thickness:1px}
+  .drop-sub{font-size:13px; color:var(--muted)}
+  .touch-only{display:none}
+  @media (hover:none){ .touch-only{display:inline} .mouse-only{display:none} }
+  #setup:disabled .drop{cursor:not-allowed; opacity:.6}
+
+  .file{display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:16px; align-items:center; padding:12px 14px 12px 12px; border:1px solid var(--line); border-radius:var(--r-panel); background:var(--surface)}
+  body.dragging .file{border-color:var(--accent); background:var(--accent-soft)}
+  .poster{width:120px; aspect-ratio:16/9; border-radius:var(--r-chip); background:#0b0e11; overflow:hidden}
+  .poster img{display:block; width:100%; height:100%; object-fit:cover}
+  .poster img:not([src]){visibility:hidden}
+  .file-name{font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .file-meta{display:flex; flex-wrap:wrap; gap:4px 24px; margin:6px 0 0}
+  .file-meta dt{font-size:12.5px; color:var(--muted)}
+  .file-meta dd{margin:0; font-size:14px; font-weight:500; font-variant-numeric:tabular-nums}
+  .field-error{margin:10px 0 0; color:var(--warn); font-size:14px}
+  @media (max-width:540px){
+    .file{grid-template-columns:auto minmax(0,1fr)}
+    .file .btn{grid-column:1 / -1; justify-self:start}
+    .poster{width:92px}
   }
-  .wrap{max-width:680px; margin:0 auto; padding:28px 18px 80px}
-  header h1{font-size:27px; line-height:1.15; font-weight:650; letter-spacing:-.01em; margin:0 0 8px}
-  header p{color:var(--muted); margin:0 0 22px; max-width:54ch}
-  .step{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:18px 18px 20px; margin-bottom:16px}
-  .step-head{display:flex; align-items:center; gap:10px; margin-bottom:12px}
-  .num{width:24px; height:24px; flex:0 0 24px; border-radius:50%; background:var(--accent); color:#fff; font-size:13px; font-weight:600; display:grid; place-items:center}
-  .step-head h2{font-size:16px; font-weight:600; margin:0}
-  label.field{display:block; font-size:13.5px; color:var(--muted); margin:0 0 6px}
-  input[type=file], textarea, select, input[type=number]{
-    width:100%; font-family:inherit; font-size:15px; color:var(--ink);
-    background:#fff; border:1px solid var(--line); border-radius:10px; padding:10px 11px;
+
+  /* opciones de transcripción */
+  .choices{display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:8px; margin:0 0 16px}
+  .choice{position:relative; display:flex; flex-direction:column; gap:3px; padding:12px 12px 13px 40px; border:1px solid var(--line); border-radius:var(--r-ctl); background:var(--surface); cursor:pointer; transition:border-color .15s, background-color .15s}
+  .choice:hover{border-color:var(--line-strong)}
+  .choice input{position:absolute; left:13px; top:14px; width:16px; height:16px; margin:0; accent-color:var(--accent)}
+  .choice.on{border-color:var(--accent); background:var(--accent-soft); box-shadow:inset 0 0 0 1px var(--accent)}
+  .choice:focus-within{outline:2px solid var(--accent); outline-offset:2px}
+  .choice-title{font-weight:600; font-size:14.5px; line-height:1.3}
+  .choice-desc{font-size:13px; color:var(--muted); line-height:1.4}
+  #setup:disabled .choice{cursor:not-allowed}
+  @media (max-width:640px){ .choices{grid-template-columns:1fr} }
+
+  /* campos */
+  .field{margin:0 0 14px}
+  .field.narrow{max-width:320px}
+  .field > label, .label{display:block; font-size:13.5px; font-weight:500; margin:0 0 6px}
+  input[type=url], input[type=password], input[type=number], select, textarea{
+    width:100%; font:inherit; font-size:15px; color:var(--ink); background:var(--surface);
+    border:1px solid var(--line-strong); border-radius:var(--r-ctl); padding:8px 11px; min-height:40px;
   }
-  textarea{min-height:120px; resize:vertical; line-height:1.45}
-  .row{display:flex; gap:12px; flex-wrap:wrap}
-  .row > div{flex:1 1 150px; min-width:140px}
-  .check{display:flex; align-items:flex-start; gap:9px; margin-top:12px; font-size:14px; color:var(--ink)}
-  .check input{margin-top:2px}
-  .radio{display:flex; align-items:flex-start; gap:9px; margin-bottom:10px; font-size:14.5px; cursor:pointer}
-  .radio input{margin-top:3px}
-  .hint{font-size:12.5px; color:var(--muted); margin-top:8px}
-  .sub{border-left:2px solid var(--line); padding-left:14px; margin:6px 0 4px}
-  button{font-family:inherit; cursor:pointer; border:none; border-radius:10px}
-  .btn-main{background:var(--accent); color:#fff; font-size:15.5px; font-weight:600; padding:13px 18px; width:100%}
-  .btn-main:disabled{background:#B9BEE6; cursor:default}
-  .btn-line{background:#fff; color:var(--accent); border:1px solid var(--accent); font-weight:600; padding:10px 14px}
-  .btn-ghost{background:#F0F1F4; color:var(--ink); font-weight:600; padding:10px 14px}
-  video.hidden,canvas.hidden{display:none}
-  .banner{border-radius:10px; padding:11px 13px; font-size:13.5px; margin-top:12px}
-  .banner.warn{background:#FBEEE7; color:var(--warn)}
-  .banner.info{background:#EAF0F6; color:#2B4A63}
-  .progress{margin-top:14px; display:none}
-  .bar{height:8px; background:#E7E9EE; border-radius:99px; overflow:hidden}
-  .bar > i{display:block; height:100%; width:0%; background:var(--accent); transition:width .2s ease}
-  .progress .status{font-size:13px; color:var(--muted); margin-top:7px}
-  .timeline{margin-top:14px; display:flex; flex-direction:column; gap:10px}
-  .frame{display:flex; gap:12px; align-items:flex-start; background:#FafbFc; border:1px solid var(--line); border-radius:10px; padding:9px}
-  .frame img{width:120px; height:auto; border-radius:6px; flex:0 0 120px; background:#000}
-  .frame .t{font-variant-numeric:tabular-nums; font-weight:600; font-size:13px; color:var(--accent); margin-bottom:3px}
-  .frame .say{font-size:13.5px; color:var(--ink); white-space:pre-wrap; word-break:break-word}
-  .frame .ocr{font-size:12.5px; color:var(--muted); white-space:pre-wrap; word-break:break-word; margin-top:6px}
-  .frame .ocr.empty{color:var(--muted); font-style:italic}
-  .out textarea{min-height:220px; font-size:13px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; line-height:1.5}
-  .out .row{margin-top:12px}
-  .deploy{margin-top:26px; font-size:13.5px; color:var(--muted)}
-  .deploy summary{cursor:pointer; color:var(--ink); font-weight:600; font-size:14.5px}
-  .deploy ol{padding-left:20px; margin:12px 0 0}
-  .deploy li{margin-bottom:9px}
-  .deploy code{background:#fff; border:1px solid var(--line); border-radius:5px; padding:1px 5px; font-size:12.5px}
-  .models{margin-top:14px; border:1px solid var(--line); border-radius:10px; overflow:hidden; background:#fff}
-  .models-head{display:flex; align-items:center; justify-content:space-between; gap:10px; padding:9px 12px; background:#FafbFc; border-bottom:1px solid var(--line); font-size:13.5px; font-weight:600}
-  .models-head button{background:none; color:var(--muted); font-size:12.5px; font-weight:500; padding:2px 0; text-decoration:underline}
+  textarea{min-height:140px; resize:vertical; line-height:1.5}
+  input:focus-visible, select:focus-visible, textarea:focus-visible{outline:2px solid var(--accent); outline-offset:1px; border-color:var(--accent)}
+  .hint{font-size:13px; color:var(--muted); margin:8px 0 0; line-height:1.5}
+  .panel{padding:14px 16px 16px; border:1px solid var(--line); border-radius:var(--r-panel); background:var(--surface)}
+
+  .inline-field{display:flex; align-items:center; flex-wrap:wrap; gap:8px 12px}
+  .inline-field label{font-weight:500; font-size:14.5px}
+  .suffix{display:inline-flex; align-items:center; border:1px solid var(--line-strong); border-radius:var(--r-ctl); background:var(--surface)}
+  .suffix:focus-within{outline:2px solid var(--accent); outline-offset:1px; border-color:var(--accent)}
+  .suffix input{border:0; width:64px; min-height:38px; text-align:right; padding-right:4px; background:transparent}
+  .suffix input:focus-visible{outline:none}
+  .suffix span{padding:0 12px 0 6px; color:var(--muted); font-size:14px}
+
+  /* interruptores */
+  .switch{position:relative; display:grid; grid-template-columns:36px minmax(0,1fr); gap:12px; margin-top:14px; cursor:pointer}
+  .switch input{position:absolute; left:0; top:2px; width:36px; height:20px; margin:0; opacity:0; cursor:pointer}
+  .sw{position:relative; width:36px; height:20px; margin-top:2px; border-radius:99px; background:var(--line-strong); transition:background-color .15s}
+  .sw::after{content:""; position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.25); transition:transform .15s}
+  .switch input:checked + .sw{background:var(--accent)}
+  .switch input:checked + .sw::after{transform:translateX(16px)}
+  .switch input:focus-visible + .sw{outline:2px solid var(--accent); outline-offset:2px}
+  .switch input:disabled + .sw{opacity:.5}
+  .sw-text strong{display:block; font-weight:500; font-size:14.5px; line-height:1.4}
+  .sw-text small{display:block; font-size:13px; color:var(--muted); margin-top:2px; line-height:1.45}
+
+  /* secciones plegables */
+  .more{margin-top:14px; border-top:1px solid var(--line); padding-top:12px}
+  .more > summary{display:inline-flex; align-items:center; gap:8px; cursor:pointer; list-style:none; font-size:14px; font-weight:500; color:var(--accent); border-radius:4px}
+  .more > summary::-webkit-details-marker{display:none}
+  .more > summary::before{content:""; width:6px; height:6px; border-right:1.5px solid currentColor; border-bottom:1.5px solid currentColor; transform:rotate(-45deg); transition:transform .15s; margin-right:2px}
+  .more[open] > summary::before{transform:rotate(45deg)}
+  .more > summary:focus-visible{outline:2px solid var(--accent); outline-offset:3px}
+  .more-body{padding-top:12px}
+  .tag{font-size:12px; font-weight:600; color:var(--ok); background:transparent; border:1px solid currentColor; border-radius:99px; padding:0 8px}
+
+  /* estado del servidor */
+  .status-line{display:flex; align-items:flex-start; justify-content:space-between; gap:10px 16px; flex-wrap:wrap}
+  .state{display:flex; gap:9px; align-items:flex-start; font-size:14px; font-weight:500; flex:1 1 260px; min-width:0}
+  .state::before{content:""; flex:0 0 8px; height:8px; margin-top:7px; border-radius:50%; background:var(--faint)}
+  .state[data-state=ok]{color:var(--ok)}
+  .state[data-state=ok]::before{background:var(--ok)}
+  .state[data-state=bad]{color:var(--warn)}
+  .state[data-state=bad]::before{background:var(--warn)}
+  .state[data-state=busy]::before{background:var(--accent); animation:pulse 1s ease-in-out infinite}
+  @keyframes pulse{50%{opacity:.25}}
+
+  /* botones */
+  .btn{display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:40px; padding:8px 16px; font:inherit; font-size:14.5px; font-weight:600; line-height:1.2; border-radius:var(--r-ctl); border:1px solid transparent; cursor:pointer; text-decoration:none; transition:background-color .15s, border-color .15s, color .15s}
+  .btn svg{width:17px; height:17px; flex:0 0 17px}
+  .btn:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+  .btn:disabled{cursor:not-allowed; opacity:.5}
+  .btn.primary{background:var(--accent); color:var(--on-accent)}
+  .btn.primary:hover:not(:disabled){background:var(--accent-hover)}
+  .btn.ghost{background:var(--surface); border-color:var(--line-strong); color:var(--ink)}
+  .btn.ghost:hover:not(:disabled){border-color:var(--ink)}
+  .btn.outline{background:transparent; border-color:var(--accent); color:var(--accent)}
+  .btn.outline:hover:not(:disabled){background:var(--accent-soft)}
+  .btn.danger{background:var(--warn); color:var(--surface)}
+  .btn.danger-text{color:var(--warn)}
+  .btn.sm{min-height:32px; padding:5px 12px; font-size:13.5px}
+  .btn.lg{min-height:48px; padding:12px 24px; font-size:16px}
+  .linkbtn{background:none; border:0; padding:0; font:inherit; font-size:13px; font-weight:500; color:var(--muted); text-decoration:underline; text-underline-offset:3px; cursor:pointer}
+  .linkbtn:hover:not(:disabled){color:var(--warn)}
+  .linkbtn:disabled{opacity:.5; cursor:not-allowed}
+  .btn-row{display:flex; flex-wrap:wrap; gap:8px}
+
+  /* modelos guardados */
+  .models{margin-top:14px; border:1px solid var(--line); border-radius:var(--r-ctl); overflow:hidden}
+  .models-head{display:flex; align-items:center; justify-content:space-between; gap:10px; padding:9px 12px; background:var(--sunken); border-bottom:1px solid var(--line); font-size:13.5px; font-weight:600}
   .mrow{display:flex; align-items:center; gap:12px; padding:10px 12px; border-bottom:1px solid var(--line)}
-  .mrow:last-child{border-bottom:none}
+  .mrow:last-child{border-bottom:0}
   .mname{flex:1 1 auto; min-width:0; font-size:14px; font-weight:600}
-  .msub{font-weight:400; color:var(--muted); font-size:12.5px}
-  .mstate{display:block; font-weight:400; font-size:12.5px; color:var(--muted); margin-top:1px}
+  .msub{font-weight:400; color:var(--muted); font-size:13px; margin-left:2px}
+  .mstate{display:block; font-weight:400; font-size:13px; color:var(--muted); margin-top:1px}
   .mstate.ok{color:var(--ok)}
-  .mstate.bad, .models .bad{color:var(--warn)}
-  .mrow button{flex:0 0 auto; padding:7px 12px; font-size:13px}
-  .mrow button:disabled, .models-head button:disabled{opacity:.5; cursor:default}
-  .models-foot{padding:9px 12px; font-size:12.5px; color:var(--muted); background:#FafbFc; border-top:1px solid var(--line)}
-  button:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
-  .hint.ok{color:var(--ok)}
-  .hint.bad{color:var(--warn)}
-  input[type=url], input[type=password]{width:100%; font-family:inherit; font-size:15px; color:var(--ink); background:#fff; border:1px solid var(--line); border-radius:10px; padding:10px 11px}
-  @media (max-width:460px){ .frame img{width:92px; flex-basis:92px} }
+  .bad, .mstate.bad{color:var(--warn)}
+  .mrow .btn{flex:0 0 auto}
+  .models-foot{padding:9px 12px; font-size:12.5px; color:var(--muted); background:var(--sunken); border-top:1px solid var(--line)}
+
+  /* avisos */
+  .banner{display:flex; gap:10px; align-items:flex-start; border-radius:var(--r-ctl); padding:10px 12px; font-size:14px; line-height:1.45; margin-top:12px}
+  .banner::before{content:"!"; flex:0 0 18px; height:18px; margin-top:1px; border-radius:50%; display:grid; place-items:center; font-size:11.5px; font-weight:700}
+  .banner.warn{background:var(--warn-soft); color:var(--warn)}
+  .banner.warn::before{background:var(--warn); color:var(--surface)}
+  .banner.info{background:var(--info-soft); color:var(--info)}
+  .banner.info::before{content:"i"; background:var(--info); color:var(--surface)}
+
+  /* generar */
+  .run{display:flex; align-items:center; flex-wrap:wrap; gap:10px 16px}
+  .run .hint{margin:0}
+
+  .progress{margin-top:16px; padding:16px; border:1px solid var(--line); border-radius:var(--r-panel); background:var(--surface)}
+  .phases{display:flex; flex-wrap:wrap; gap:6px; list-style:none; margin:0 0 14px; padding:0}
+  .phases li{display:inline-flex; align-items:center; gap:7px; padding:3px 11px 3px 9px; font-size:13px; color:var(--muted); background:var(--sunken); border:1px solid var(--line); border-radius:99px}
+  .phases li::before{content:""; width:8px; height:8px; border-radius:50%; border:1.5px solid currentColor; box-sizing:border-box}
+  .phases li[data-state=active]{color:var(--accent); border-color:var(--accent); background:var(--accent-soft)}
+  .phases li[data-state=active]::before{background:currentColor; animation:pulse 1.2s ease-in-out infinite}
+  .phases li[data-state=done]{color:var(--ink)}
+  .phases li[data-state=done]::before{background:var(--ok); border-color:var(--ok)}
+  .phases li[data-state=warn]{color:var(--warn)}
+  .phases li[data-state=warn]::before{background:var(--warn); border-color:var(--warn)}
+  .phases li[data-state=skip]{opacity:.5}
+  .bar{height:6px; border-radius:99px; background:var(--sunken); border:1px solid var(--line); overflow:hidden}
+  .bar > i{display:block; height:100%; width:0; background:var(--accent); transition:width .25s ease}
+  .progress-row{display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:4px 16px; margin-top:9px; font-size:13.5px}
+  .status{margin:0}
+  .timer{color:var(--muted); font-variant-numeric:tabular-nums; white-space:nowrap}
+  .progress-foot{display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:12px}
+  .progress-foot .hint{margin:0}
+
+  /* pista del video: muestra en qué parte va y dónde se guardaron capturas */
+  .track{display:grid; grid-template-columns:64px minmax(0,1fr); gap:6px 10px; margin-top:16px; font-size:12px; color:var(--muted)}
+  .track-names{display:grid; grid-template-rows:16px 16px; row-gap:6px; align-items:center}
+  .track-area{position:relative; display:grid; grid-template-rows:16px 16px; row-gap:6px}
+  .lane{position:relative; background:var(--sunken); border:1px solid var(--line); border-radius:4px; overflow:hidden}
+  .lane .seg{position:absolute; top:3px; bottom:3px; background:var(--accent); opacity:.7; box-shadow:inset -1px 0 0 var(--surface)}
+  .lane .seg.quiet{background:var(--line-strong); opacity:1}
+  .lane .seg.bad{background:var(--warn); opacity:.9}
+  .lane .tick{position:absolute; top:2px; bottom:2px; width:2px; margin-left:-1px; border-radius:1px; background:var(--ink)}
+  .playhead{position:absolute; top:-5px; bottom:-5px; width:2px; margin-left:-1px; background:var(--rec); border-radius:1px; transition:left .2s linear}
+  .playhead::before{content:""; position:absolute; top:-3px; left:-3px; width:8px; height:8px; border-radius:50%; background:var(--rec)}
+  .track-scale{grid-column:2; display:flex; justify-content:space-between; font-variant-numeric:tabular-nums}
+
+  /* resultado */
+  .result{margin-top:16px; padding:18px; border:1px solid var(--accent); border-radius:var(--r-panel); background:var(--surface)}
+  .result h3{margin:0 0 14px; font-size:16px; font-weight:600}
+  .stats{display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:10px; margin:0 0 16px}
+  .stats div{padding:10px 12px; background:var(--sunken); border-radius:var(--r-ctl)}
+  .stats dt{font-size:12.5px; color:var(--muted)}
+  .stats dd{margin:2px 0 0; font-size:21px; font-weight:600; letter-spacing:-.01em; font-variant-numeric:tabular-nums}
+  @media (max-width:480px){ .stats dd{font-size:18px} .stats div{padding:8px 10px} }
+  .result textarea{min-height:260px; font-family:var(--mono); font-size:12.5px; line-height:1.55}
+
+  /* capturas */
+  .gallery-head{display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin:28px 0 12px}
+  .gallery-head h3{margin:0; font-size:15px; font-weight:600}
+  .count{font-size:13px; color:var(--muted); font-variant-numeric:tabular-nums}
+  .gallery{display:grid; grid-template-columns:repeat(auto-fill, minmax(164px, 1fr)); gap:14px 12px}
+  .shot{display:flex; flex-direction:column; gap:6px; padding:0; margin:0; border:0; background:none; color:inherit; font:inherit; text-align:left; cursor:zoom-in; border-radius:var(--r-chip)}
+  .shot-img{position:relative; display:block; aspect-ratio:16/9; border-radius:var(--r-chip); overflow:hidden; background:#0b0e11; border:1px solid var(--line); transition:border-color .15s}
+  .shot-img img{display:block; width:100%; height:100%; object-fit:contain}
+  .shot:hover .shot-img{border-color:var(--accent)}
+  .shot:focus-visible{outline:2px solid var(--accent); outline-offset:3px}
+  .tc{position:absolute; left:6px; bottom:6px; padding:1px 6px; border-radius:4px; background:rgba(8,10,12,.78); color:#fff; font-size:12px; font-weight:600; font-variant-numeric:tabular-nums}
+  .shot-text{font-size:13px; line-height:1.45; color:var(--ink); display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden}
+  .shot-text.empty{color:var(--faint)}
+  .shot-text:empty{display:none}
+
+  /* ventanas */
+  dialog{padding:0; border:1px solid var(--line); border-radius:var(--r-panel); background:var(--surface); color:var(--ink); box-shadow:0 24px 60px rgba(0,0,0,.28); max-width:min(92vw, 460px)}
+  dialog::backdrop{background:rgba(9,12,15,.6)}
+  .dlg-body{padding:20px 20px 4px}
+  .dlg-body h3{margin:0 0 6px; font-size:16px}
+  .dlg-body p{margin:0; color:var(--muted); font-size:14.5px}
+  .dlg-actions{display:flex; justify-content:flex-end; gap:8px; padding:16px 20px 18px}
+  dialog.viewer{width:min(94vw, 1080px); max-width:none}
+  .viewer-top{display:flex; align-items:center; gap:12px; padding:12px 14px 12px 18px; border-bottom:1px solid var(--line)}
+  .viewer-top strong{font-size:16px; font-variant-numeric:tabular-nums}
+  .viewer-top span{flex:1; min-width:0; color:var(--muted); font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .viewer img{display:block; width:100%; max-height:64vh; object-fit:contain; background:#0b0e11}
+  .viewer-text{padding:14px 18px 4px; max-height:22vh; overflow:auto}
+  .viewer-text p{margin:0 0 8px; font-size:14.5px; max-width:75ch}
+  .viewer-text p.ocr{color:var(--muted); font-size:13.5px; white-space:pre-wrap}
+  .viewer-nav{display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 14px 14px}
+  .viewer-nav span{font-size:13px; color:var(--muted); font-variant-numeric:tabular-nums}
+
+  .toast{position:fixed; left:50%; bottom:24px; z-index:20; transform:translate(-50%, 12px); opacity:0; pointer-events:none; padding:10px 16px; border-radius:var(--r-ctl); background:var(--ink); color:var(--bg); font-size:14px; font-weight:500; box-shadow:0 8px 24px rgba(0,0,0,.2); transition:opacity .2s, transform .2s}
+  .toast.show{opacity:1; transform:translate(-50%, 0)}
+
+  /* pie */
+  .foot{margin-top:8px; padding-top:20px; border-top:1px solid var(--line); font-size:13.5px; color:var(--muted)}
+  .foot .more{border-top:0; margin:0; padding:0}
+  .foot .more > summary{color:var(--ink)}
+  .foot ol{padding-left:20px; margin:0}
+  .foot li{margin-bottom:8px}
+  .foot code{font-family:var(--mono); font-size:12.5px; background:var(--surface); border:1px solid var(--line); border-radius:4px; padding:1px 5px}
+
+  video.hidden, canvas.hidden{display:none}
+
+  @media (max-width:520px){
+    .wrap{padding:28px 16px 56px}
+    .intro h1{font-size:25px}
+    .step{grid-template-columns:26px minmax(0,1fr); column-gap:12px}
+    .num{width:26px; height:26px; font-size:12.5px}
+    .rail::after{top:34px}
+    .btn.lg{width:100%}
+    .btn-row .btn{flex:1 1 auto}
+    .gallery{grid-template-columns:repeat(2, minmax(0,1fr)); gap:12px 10px}
+  }
+  @media (prefers-reduced-motion: reduce){
+    *, *::before, *::after{animation:none !important; transition:none !important}
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <header>
-    <h1>Preparar un video para dárselo a una IA</h1>
-    <p>Sube un video y esta página arma, ordenado por tiempo, la transcripción de lo que se dice y una imagen de la pantalla en cada momento. Descargas todo en un ZIP para dárselo a una IA que pueda ver imágenes. La IA lee las imágenes directamente, así que el texto que de verdad importa es el audio transcrito. Todo ocurre en tu navegador, nada se sube a internet.</p>
+  <header class="intro">
+    <h1>Prepara un video para que una IA lo entienda</h1>
+    <p>Esta página arma una línea de tiempo con lo que se dice en el video y una captura de la pantalla en cada momento. Descargas todo en un ZIP y lo subes a una IA que pueda ver imágenes.</p>
+    <p class="privacy">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg>
+      <span>Las capturas se hacen en tu computador y no salen de él. Solo si transcribes en el servidor se envía el audio, y el servidor no guarda copias.</span>
+    </p>
   </header>
 
-  <div class="step">
-    <div class="step-head"><span class="num">1</span><h2>Elige el video</h2></div>
-    <label class="field" for="video">Archivo de video (mp4 o webm funcionan mejor)</label>
-    <input type="file" id="video" accept="video/*" />
-    <div id="videoInfo" class="hint"></div>
-  </div>
+  <main class="steps">
+    <fieldset id="setup">
+      <section class="step" data-step="1" id="step1" aria-labelledby="h-step1">
+        <div class="rail"><span class="num"><span class="n">1</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span></div>
+        <div class="body">
+          <h2 id="h-step1">Elige el video</h2>
+          <p class="lead">Funciona mejor con archivos mp4 o webm.</p>
+          <input type="file" id="video" accept="video/*" class="vh" />
+          <label class="drop" id="drop" for="video">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4"/><path d="M7.5 8.5L12 4l4.5 4.5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+            <span class="drop-title"><span class="mouse-only">Arrastra el video aquí o <u>elige un archivo</u></span><span class="touch-only"><u>Toca para elegir un video</u></span></span>
+            <span class="drop-sub">El video no se sube a ningún lado</span>
+          </label>
+          <div class="file" id="fileCard" hidden>
+            <div class="poster"><img id="poster" alt="" /></div>
+            <div>
+              <div class="file-name" id="fileName"></div>
+              <dl class="file-meta">
+                <div><dt>Duración</dt><dd id="fDur"></dd></div>
+                <div><dt>Resolución</dt><dd id="fRes"></dd></div>
+                <div><dt>Tamaño</dt><dd id="fSize"></dd></div>
+              </dl>
+            </div>
+            <button type="button" class="btn ghost sm" id="changeVideo">Cambiar video</button>
+          </div>
+          <p class="field-error" id="videoError" role="alert" hidden></p>
+        </div>
+      </section>
 
-  <div class="step">
-    <div class="step-head"><span class="num">2</span><h2>Ajusta cómo tomar las imágenes</h2></div>
-    <div class="row">
-      <div>
-        <label class="field" for="interval">Tomar una imagen cada (segundos)</label>
-        <input type="number" id="interval" value="5" min="1" step="1" />
-      </div>
-    </div>
-    <label class="check"><input type="checkbox" id="dedup" checked /><span>Guardar una imagen cuando la pantalla cambia de verdad, por ejemplo al cambiar de diapositiva, compartir una planilla o hacer scroll, y al menos una cada 45 segundos para no perder nada. Salta las caras que solo se mueven un poco.</span></label>
-    <label class="check"><input type="checkbox" id="useOCR" /><span>Leer además el texto de la pantalla con OCR. Normalmente <b>no hace falta</b>. Una IA que ve imágenes lee la pantalla mejor que el OCR, y en capturas densas el OCR sale con errores que ensucian el documento. Actívalo solo si vas a pegar el texto en una IA que no ve imágenes. Ojo, el OCR descarga sus datos de idioma, así que déjalo apagado en computadores donde no se puede descargar.</span></label>
-    <div id="ocrLangWrap" style="display:none; margin-top:10px">
-      <label class="field" for="lang">Idioma del texto en pantalla</label>
-      <select id="lang">
-        <option value="spa">Español</option>
-        <option value="eng">Inglés</option>
-        <option value="spa+eng">Español e inglés</option>
-      </select>
-    </div>
-    <div id="estimate" class="hint"></div>
-  </div>
+      <section class="step" data-step="2" aria-labelledby="h-step2">
+        <div class="rail"><span class="num"><span class="n">2</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span></div>
+        <div class="body">
+          <h2 id="h-step2">Transcripción del audio</h2>
+          <p class="lead">Elige cómo pasar a texto lo que se dice en el video.</p>
 
-  <div class="step">
-    <div class="step-head"><span class="num">3</span><h2>La transcripción del video</h2></div>
+          <fieldset class="choices">
+            <legend class="vh">Cómo obtener la transcripción</legend>
+            <label class="choice"><input type="radio" name="src" value="server" checked />
+              <span class="choice-title">En el servidor</span>
+              <span class="choice-desc">Recomendado. No descarga nada en este computador.</span></label>
+            <label class="choice"><input type="radio" name="src" value="auto" />
+              <span class="choice-title">En este navegador</span>
+              <span class="choice-desc">Descarga un modelo de voz la primera vez y lo deja guardado.</span></label>
+            <label class="choice"><input type="radio" name="src" value="paste" />
+              <span class="choice-title">Pegar la mía</span>
+              <span class="choice-desc">Si ya tienes el texto del video.</span></label>
+          </fieldset>
 
-    <label class="radio"><input type="radio" name="src" value="server" checked /><span>Generarla sola en un servidor. Este computador no descarga ningún modelo, solo envía el audio y recibe el texto. Usa el modelo de máxima calidad.</span></label>
-    <label class="radio"><input type="radio" name="src" value="auto" /><span>Generarla sola en este navegador. La primera vez descarga el modelo y lo deja guardado, las siguientes veces parte sin descargar.</span></label>
-    <label class="radio"><input type="radio" name="src" value="paste" /><span>Ya la tengo y la pego yo.</span></label>
+          <div id="spokenWrap" class="field narrow">
+            <label for="spoken">Idioma que se habla en el video</label>
+            <select id="spoken">
+              <option value="spanish">Español</option>
+              <option value="english">Inglés</option>
+              <option value="auto">Detectarlo solo</option>
+            </select>
+          </div>
 
-    <div id="spokenWrap" class="sub">
-      <label class="field" for="spoken">Idioma hablado</label>
-      <select id="spoken">
-        <option value="spanish">Español</option>
-        <option value="english">Inglés</option>
-        <option value="auto">Detectar solo</option>
-      </select>
-    </div>
+          <div id="serverOpts" class="panel">
+            <div class="status-line">
+              <span id="serverState" class="state" data-state="">Conexión sin revisar</span>
+              <button type="button" id="testServer" class="btn ghost sm">Probar conexión</button>
+            </div>
+            <p class="hint">Hay una cuota gratis de unos 200 minutos de audio al día, o unos 680 si el servidor también tiene la clave de Groq. Se renueva todos los días a las 20:00 o 21:00 hora de Chile, según la época del año.</p>
+            <details class="more" id="serverMore">
+              <summary>Cambiar servidor</summary>
+              <div class="more-body">
+                <div class="field">
+                  <label for="serverUrl">Dirección del servidor</label>
+                  <input type="url" id="serverUrl" placeholder="https://transcribir.tu-cuenta.workers.dev" autocomplete="off" spellcheck="false" />
+                </div>
+                <div class="field narrow">
+                  <label for="serverKey">Clave, solo si la configuraste en el servidor</label>
+                  <input type="password" id="serverKey" autocomplete="off" />
+                </div>
+                <p class="hint">El audio viaja en trozos de menos de 30 segundos. El servidor solo lo transcribe y no guarda copias.</p>
+              </div>
+            </details>
+          </div>
 
-    <div id="serverOpts" class="sub">
-      <label class="field" for="serverUrl">Dirección del servidor</label>
-      <input type="url" id="serverUrl" placeholder="https://transcribir.tu-cuenta.workers.dev" autocomplete="off" spellcheck="false" />
-      <div class="row" style="margin-top:10px">
-        <div>
-          <label class="field" for="serverKey">Clave, solo si la configuraste en el servidor</label>
-          <input type="password" id="serverKey" autocomplete="off" />
+          <div id="autoOpts" class="panel" hidden>
+            <div class="field" style="margin-bottom:0">
+              <label for="quality">Calidad</label>
+              <select id="quality">
+                <option value="base" selected>Equilibrado (base, ~80 MB)</option>
+                <option value="fast">Rápido (tiny, ~40 MB)</option>
+                <option value="small">Preciso (small, ~240 MB)</option>
+                <option value="turbo">Máxima calidad (large v3 turbo, ~800 MB, necesita Chrome de computador)</option>
+              </select>
+            </div>
+            <p class="hint">Más preciso significa una descarga más grande y un proceso más lento. El modelo máximo solo funciona bien en Chrome o Edge de computador, porque usa la tarjeta gráfica. En el teléfono, usa Equilibrado o Rápido.</p>
+            <div class="models" id="modelsBox">
+              <div class="models-head"><span>Modelos guardados en este navegador</span><button type="button" id="clearAll" class="linkbtn" style="display:none">Borrar todos</button></div>
+              <div id="modelRows"></div>
+              <div class="models-foot" id="modelsFoot">Revisando qué está guardado...</div>
+            </div>
+            <div id="modelsMsg"></div>
+            <p class="hint">Puedes guardar un modelo ahora con su botón Guardar, así el primer video no espera la descarga.</p>
+          </div>
+
+          <div id="pasteOpts" class="panel" hidden>
+            <div class="field" style="margin-bottom:0">
+              <label for="transcript">Pega la transcripción</label>
+              <textarea id="transcript" placeholder="Pega aquí el texto del video..."></textarea>
+            </div>
+            <p class="hint">Puede traer marcas de tiempo, como 00:12 o el formato de subtítulos SRT. Si las trae, el texto se junta con las capturas en la misma línea de tiempo.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="step" data-step="3" aria-labelledby="h-step3">
+        <div class="rail"><span class="num"><span class="n">3</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span></div>
+        <div class="body">
+          <h2 id="h-step3">Capturas de pantalla</h2>
+          <p class="lead">Cada cuánto revisar el video y qué momentos guardar.</p>
+          <div class="panel">
+            <div class="inline-field">
+              <label for="interval">Revisar el video cada</label>
+              <span class="suffix"><input type="number" id="interval" value="5" min="1" step="1" inputmode="numeric" /><span>segundos</span></span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="dedup" role="switch" checked />
+              <span class="sw" aria-hidden="true"></span>
+              <span class="sw-text"><strong>Guardar solo cuando la pantalla cambia</strong><small>Por ejemplo al pasar de diapositiva, compartir una planilla o hacer scroll. Igual guarda una cada 45 segundos para no perder nada, y salta las caras que solo se mueven un poco.</small></span>
+            </label>
+            <p id="estimate" class="hint" aria-live="polite"></p>
+
+            <details class="more" id="ocrMore">
+              <summary>Leer también el texto de la pantalla (OCR) <span class="tag" id="ocrTag" hidden>Activado</span></summary>
+              <div class="more-body">
+                <p class="hint" style="margin-top:0">El OCR reconoce las letras de cada captura y las pasa a texto. Normalmente no hace falta, porque una IA que ve imágenes lee la pantalla mejor y el OCR puede meter errores en el documento. Úsalo solo si vas a pegar el texto en una IA que no ve imágenes. Descarga datos de idioma, así que déjalo apagado en computadores donde no se puede descargar.</p>
+                <label class="switch">
+                  <input type="checkbox" id="useOCR" role="switch" />
+                  <span class="sw" aria-hidden="true"></span>
+                  <span class="sw-text"><strong>Usar OCR</strong></span>
+                </label>
+                <div id="ocrLangWrap" class="field narrow" style="margin:12px 0 0" hidden>
+                  <label for="lang">Idioma del texto en pantalla</label>
+                  <select id="lang">
+                    <option value="spa">Español</option>
+                    <option value="eng">Inglés</option>
+                    <option value="spa+eng">Español e inglés</option>
+                  </select>
+                </div>
+              </div>
+            </details>
+          </div>
+        </div>
+      </section>
+    </fieldset>
+
+    <section class="step end" data-step="4" id="step4" aria-labelledby="h-step4">
+      <div class="rail"><span class="num"><span class="n">4</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span></div>
+      <div class="body">
+        <h2 id="h-step4">Generar el documento</h2>
+        <p class="lead">Junta la transcripción y las capturas en orden de tiempo.</p>
+        <div class="run">
+          <button type="button" id="run" class="btn primary lg" disabled>Generar documento</button>
+          <p id="runHint" class="hint">Primero elige un video en el paso 1.</p>
+        </div>
+        <div id="loadBanner"></div>
+
+        <div class="progress" id="progress" hidden>
+          <ol class="phases" id="phases">
+            <li data-phase="audio">Audio</li>
+            <li data-phase="tr">Transcripción</li>
+            <li data-phase="img">Capturas</li>
+            <li data-phase="doc">Documento</li>
+          </ol>
+          <div class="bar" id="bar" role="progressbar" aria-label="Avance" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="barFill"></i></div>
+          <div class="progress-row">
+            <p class="status" id="status">Preparando...</p>
+            <span class="timer" id="timer"></span>
+          </div>
+          <div class="track" aria-hidden="true">
+            <div class="track-names"><span>Audio</span><span>Capturas</span></div>
+            <div class="track-area">
+              <div class="lane" id="laneAudio"></div>
+              <div class="lane" id="laneImg"></div>
+              <div class="playhead" id="playhead" hidden></div>
+            </div>
+            <div class="track-scale"><span>00:00</span><span id="trackEnd"></span></div>
+          </div>
+          <div class="progress-foot">
+            <p class="hint">Cada marca en la pista de capturas es una imagen guardada.</p>
+            <button type="button" id="cancel" class="btn ghost sm" hidden>Cancelar</button>
+          </div>
+        </div>
+
+        <div class="result" id="outStep" hidden>
+          <h3>Documento listo</h3>
+          <dl class="stats">
+            <div><dt>Capturas</dt><dd id="statFrames"></dd></div>
+            <div><dt>Duración del video</dt><dd id="statDur"></dd></div>
+            <div><dt>Tiempo de preparación</dt><dd id="statTime"></dd></div>
+          </dl>
+          <div class="btn-row">
+            <button type="button" id="zipBtn" class="btn primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="M7.5 10.5L12 15l4.5-4.5"/><path d="M5 20h14"/></svg><span>Descargar ZIP</span></button>
+            <button type="button" id="copy" class="btn ghost">Copiar texto</button>
+            <button type="button" id="download" class="btn ghost">Descargar solo el texto</button>
+          </div>
+          <p class="hint">El ZIP trae el texto y todas las capturas. Descomprímelo y sube a la IA el archivo de texto junto con las imágenes. El texto nombra cada imagen por su minuto, así la IA puede unir todo.</p>
+          <div id="outMsg"></div>
+          <details class="more" id="textDetails">
+            <summary>Ver el texto del documento</summary>
+            <div class="more-body"><textarea id="output" readonly aria-label="Texto del documento"></textarea></div>
+          </details>
+        </div>
+
+        <div id="galleryWrap" hidden>
+          <div class="gallery-head"><h3>Capturas guardadas</h3><span class="count" id="frameCount"></span></div>
+          <div class="gallery" id="timeline"></div>
         </div>
       </div>
-      <div class="row" style="margin-top:10px; align-items:center">
-        <button type="button" id="testServer" class="btn-ghost">Probar conexión</button>
-        <span id="serverState" class="hint" style="margin:0"></span>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <details class="more">
+      <summary>Cómo publicar esta página en GitHub Pages</summary>
+      <div class="more-body">
+        <ol>
+          <li>Crea un repositorio nuevo en GitHub, por ejemplo <code>preparar-video</code>.</li>
+          <li>Sube este archivo con el nombre <code>index.html</code> a la raíz del repositorio, y junto a él el archivo <code>sw.js</code>. Con <code>sw.js</code> la página y sus librerías quedan guardadas y abre sin internet después de la primera vez.</li>
+          <li>Entra a <code>Settings</code>, luego <code>Pages</code>, y en <code>Source</code> elige la rama <code>main</code> y la carpeta <code>/ (root)</code>.</li>
+          <li>Espera un minuto. GitHub te muestra la dirección pública, algo como <code>https://tu-usuario.github.io/preparar-video/</code>.</li>
+          <li>Para transcribir sin descargar modelos, crea el servidor gratis en Cloudflare con el archivo <code>servidor-cloudflare.js</code>. Los pasos están al comienzo de ese archivo. Después pega su dirección en la constante <code>SERVIDOR_POR_DEFECTO</code> de este archivo, así nadie tiene que escribirla.</li>
+          <li>Si prefieres la opción en el navegador, el modelo se descarga la primera vez y queda guardado en el navegador de cada persona.</li>
+        </ol>
       </div>
-      <div class="hint">El audio viaja al servidor en trozos de menos de 30 segundos. Tu servidor solo lo transcribe, no guarda copias. La cuota gratis alcanza para unos 200 minutos de audio al día con Cloudflare, y para unos 680 si el servidor también tiene la clave de Groq. Se renueva a medianoche UTC, que en Chile son las 20:00 o 21:00 según la época del año.</div>
-    </div>
-
-    <div id="autoOpts" class="sub" style="display:none">
-      <div class="row">
-        <div>
-          <label class="field" for="quality">Calidad</label>
-          <select id="quality">
-            <option value="base" selected>Equilibrado (base, ~80 MB)</option>
-            <option value="fast">Rápido (tiny, ~40 MB)</option>
-            <option value="small">Preciso (small, ~240 MB)</option>
-            <option value="turbo">Máxima calidad (large v3 turbo, ~800 MB, necesita Chrome de computador)</option>
-          </select>
-        </div>
-      </div>
-      <div class="hint">Más preciso significa descarga más grande y más lento. El modelo máximo solo funciona bien en computador con Chrome o Edge, porque usa la tarjeta gráfica. En el teléfono, quédate en Equilibrado o Rápido.</div>
-      <div class="models" id="modelsBox">
-        <div class="models-head"><span>Modelos guardados en este navegador</span><button type="button" id="clearAll" style="display:none">Borrar todos</button></div>
-        <div id="modelRows"></div>
-        <div class="models-foot" id="modelsFoot">Revisando qué está guardado...</div>
-      </div>
-      <div id="modelsMsg"></div>
-      <div class="hint">Puedes guardar un modelo ahora con el botón Guardar, así el primer video no tiene que esperar la descarga.</div>
-    </div>
-
-    <div id="pasteOpts" class="sub" style="display:none">
-      <label class="field" for="transcript">Puede traer marcas de tiempo (tipo 00:12 o formato SRT) o no. Si las trae, se juntan con las imágenes en la misma línea de tiempo.</label>
-      <textarea id="transcript" placeholder="Pega aquí el texto del video..."></textarea>
-    </div>
-  </div>
-
-  <div class="step">
-    <div class="step-head"><span class="num">4</span><h2>Arma el documento</h2></div>
-    <button id="run" class="btn-main" disabled>Elige un video primero</button>
-    <div id="loadBanner"></div>
-    <div class="progress" id="progress">
-      <div class="bar"><i id="barFill"></i></div>
-      <div class="status" id="status">Preparando...</div>
-      <div class="status" id="timer" style="font-variant-numeric:tabular-nums"></div>
-    </div>
-    <div class="timeline" id="timeline"></div>
-  </div>
-
-  <div class="step out" id="outStep" style="display:none">
-    <div class="step-head"><span class="num">5</span><h2>Listo para pegar en la IA</h2></div>
-    <textarea id="output" readonly></textarea>
-    <div class="hint" style="margin-top:2px">Para darme el mayor contexto, descarga el ZIP, descomprímelo y sube todas las imágenes junto al archivo de texto. El texto nombra cada imagen por su hora, así puedo alinearlo todo.</div>
-    <div class="row">
-      <button id="zipBtn" class="btn-line">Descargar imágenes y texto (ZIP)</button>
-      <button id="copy" class="btn-ghost">Copiar texto</button>
-      <button id="download" class="btn-ghost">Solo texto</button>
-    </div>
-  </div>
-
-  <details class="deploy">
-    <summary>Cómo subir esta página a GitHub Pages</summary>
-    <ol>
-      <li>Crea un repositorio nuevo en GitHub, por ejemplo <code>preparar-video</code>.</li>
-      <li>Sube este archivo con el nombre <code>index.html</code> a la raíz del repositorio, y junto a él el archivo <code>sw.js</code>. Con <code>sw.js</code> la página y sus librerías quedan guardadas y abre sin internet después de la primera vez.</li>
-      <li>Entra a <code>Settings</code>, luego <code>Pages</code>, y en <code>Source</code> elige la rama <code>main</code> y la carpeta <code>/ (root)</code>.</li>
-      <li>Espera un minuto. GitHub te muestra la dirección pública, algo como <code>https://tu-usuario.github.io/preparar-video/</code>.</li>
-      <li>Para transcribir sin descargar modelos, crea el servidor gratis en Cloudflare con el archivo <code>servidor-cloudflare.js</code>. Los pasos están al comienzo de ese archivo. Después pega su dirección en la constante <code>SERVIDOR_POR_DEFECTO</code> de este archivo, así nadie tiene que escribirla.</li>
-      <li>Si prefieres la opción en el navegador, el modelo se descarga la primera vez y queda guardado en el navegador de cada persona.</li>
-    </ol>
-  </details>
+    </details>
+  </footer>
 </div>
+
+<dialog id="confirmDlg" aria-labelledby="cTitle" aria-describedby="cText">
+  <div class="dlg-body"><h3 id="cTitle"></h3><p id="cText"></p></div>
+  <div class="dlg-actions">
+    <button type="button" class="btn ghost" id="cCancel">Cancelar</button>
+    <button type="button" class="btn danger" id="cOk">Borrar</button>
+  </div>
+</dialog>
+
+<dialog id="viewer" class="viewer" aria-labelledby="vTime">
+  <div class="viewer-top">
+    <strong id="vTime"></strong>
+    <span id="vName"></span>
+    <button type="button" class="btn ghost sm" id="vClose">Cerrar</button>
+  </div>
+  <img id="vImg" alt="" />
+  <div class="viewer-text">
+    <p id="vSaid"></p>
+    <p id="vOcr" class="ocr"></p>
+  </div>
+  <div class="viewer-nav">
+    <button type="button" class="btn ghost sm" id="vPrev">Anterior</button>
+    <span id="vPos"></span>
+    <button type="button" class="btn ghost sm" id="vNext">Siguiente</button>
+  </div>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="vh" id="sr" aria-live="polite"></div>
 
 <video id="vid" class="hidden" muted playsinline preload="auto"></video>
 <canvas id="ocrCanvas" class="hidden"></canvas>
@@ -228,47 +592,205 @@ const vid = $('vid');
 const ocrCanvas = $('ocrCanvas'), octx = ocrCanvas.getContext('2d', {willReadFrequently:true});
 const thumbCanvas = $('thumbCanvas'), tctx = thumbCanvas.getContext('2d');
 const hashCanvas = $('hashCanvas'), hctx = hashCanvas.getContext('2d', {willReadFrequently:true});
+const BASE_TITLE = document.title;
 
 let videoURL = null;
 let videoFile = null;
 let ready = false;
+let busy = false, busyKey = null;   // la página está ocupada, ya sea generando o guardando un modelo
+let running = false;                // se está generando el documento
+let hasResult = false;
+let cancelRun = false;
+let loadToken = 0;
 
-$('useOCR').addEventListener('change', () => {
-  $('ocrLangWrap').style.display = $('useOCR').checked ? '' : 'none';
-});
+// ---------- ayudas de interfaz ----------
+const reduceMotion = () => !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+function scrollToEl(el){ try { el.scrollIntoView({behavior: reduceMotion() ? 'auto' : 'smooth', block:'start'}); } catch(e){} }
+function makeBanner(kind, text){ const d = document.createElement('div'); d.className = 'banner ' + kind; d.textContent = text; return d; }
+function addBanner(kind, text){ $('loadBanner').appendChild(makeBanner(kind, text)); }
+let toastT = null;
+function toast(msg){
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastT);
+  toastT = setTimeout(() => t.classList.remove('show'), 2400);
+}
+// anuncia cambios importantes a quien usa lector de pantalla, sin repetir cada avance
+function srSay(msg){ const s = $('sr'); s.textContent = ''; setTimeout(() => { s.textContent = msg; }, 60); }
+function setStepDone(n, on){ const s = document.querySelector('.step[data-step="' + n + '"]'); if (s) s.classList.toggle('done', !!on); }
 
-// cargar video
-$('video').addEventListener('change', e => {
-  const file = e.target.files[0];
-  if (!file) return;
+function refreshRun(){
+  const b = $('run'), h = $('runHint');
+  b.disabled = busy || !ready;
+  b.textContent = running ? 'Generando...' : hasResult ? 'Generar de nuevo' : 'Generar documento';
+  let hint = '';
+  if (!videoFile) hint = 'Primero elige un video en el paso 1.';
+  else if (!ready) hint = 'Cargando el video...';
+  else if (busy && !running) hint = 'Espera a que termine de guardarse el modelo.';
+  h.textContent = hint;
+  h.hidden = !hint;
+}
+
+// ventana de confirmación propia, con respaldo en la del navegador
+function askConfirm(title, text, okLabel){
+  const d = $('confirmDlg');
+  if (!d || typeof d.showModal !== 'function') return Promise.resolve(confirm(title + '. ' + text));
+  $('cTitle').textContent = title;
+  $('cText').textContent = text;
+  $('cOk').textContent = okLabel || 'Aceptar';
+  return new Promise(res => {
+    const done = v => { $('cOk').onclick = $('cCancel').onclick = d.oncancel = null; if (d.open) d.close(); res(v); };
+    $('cOk').onclick = () => done(true);
+    $('cCancel').onclick = () => done(false);
+    d.oncancel = e => { e.preventDefault(); done(false); };
+    d.showModal();
+    $('cCancel').focus();
+  });
+}
+
+// ---------- video ----------
+function showVideoError(msg){ const e = $('videoError'); e.textContent = msg; e.hidden = false; }
+function showDrop(on){
+  $('drop').hidden = !on;
+  $('fileCard').hidden = on;
+  $('video').tabIndex = on ? 0 : -1;
+}
+function clearResults(){
+  hasResult = false;
+  lastFrames = [];
+  $('loadBanner').innerHTML = '';
+  $('progress').hidden = true;
+  $('outStep').hidden = true;
+  $('output').value = '';
+  resetGallery();
+  setStepDone(4, false);
+}
+function handleFile(file){
+  if (!file || running) return;
+  $('videoError').hidden = true;
+  if (file.type && !file.type.startsWith('video/')){
+    showVideoError('"' + file.name + '" no es un video. Elige un archivo mp4 o webm.');
+    return;
+  }
+  ++loadToken;
   videoFile = file;
   if (videoURL) URL.revokeObjectURL(videoURL);
   videoURL = URL.createObjectURL(file);
   ready = false;
-  $('run').disabled = true;
-  $('run').textContent = 'Cargando video...';
-  vid.src = videoURL;
-});
-
-vid.addEventListener('loadedmetadata', () => {
-  ready = true;
-  $('videoInfo').textContent = 'Duración ' + fmt(vid.duration) + '. Tamaño ' + vid.videoWidth + ' por ' + vid.videoHeight + ' píxeles.';
-  $('run').disabled = busy;
-  $('run').textContent = 'Armar el documento';
+  clearResults();
+  $('fileName').textContent = file.name;
+  $('fileName').title = file.name;
+  $('fSize').textContent = fmtBytes(file.size);
+  $('fDur').textContent = 'Leyendo...';
+  $('fRes').textContent = 'Leyendo...';
+  $('poster').removeAttribute('src');
+  showDrop(false);
+  setStepDone(1, false);
+  refreshRun();
   updateEstimate();
+  vid.src = videoURL;
+}
+// algunos webm grabados en el navegador no traen la duración, se obliga a calcularla
+async function ensureDuration(){
+  if (isFinite(vid.duration) && vid.duration > 0) return true;
+  await new Promise(res => {
+    const h = () => { if (isFinite(vid.duration)){ vid.removeEventListener('durationchange', h); res(); } };
+    vid.addEventListener('durationchange', h);
+    try { vid.currentTime = 1e101; } catch(e){ res(); }
+    setTimeout(res, 5000);
+  });
+  try { vid.currentTime = 0; } catch(e){}
+  return isFinite(vid.duration) && vid.duration > 0;
+}
+function videoFailed(msg){
+  ready = false;
+  videoFile = null;
+  showDrop(true);
+  showVideoError(msg);
+  setStepDone(1, false);
+  refreshRun();
+  updateEstimate();
+}
+vid.addEventListener('loadedmetadata', async () => {
+  const token = loadToken;
+  const okDur = await ensureDuration();
+  if (token !== loadToken) return;
+  if (!okDur){ videoFailed('No se pudo leer cuánto dura este video. Prueba con un archivo mp4.'); return; }
+  $('fDur').textContent = fmt(vid.duration);
+  $('fRes').textContent = vid.videoWidth ? vid.videoWidth + ' × ' + vid.videoHeight : 'Sin imagen';
+  // miniatura del video para confirmar que es el correcto
+  try {
+    await seekTo(Math.min(1, vid.duration / 10));
+    if (token !== loadToken) return;
+    if (vid.videoWidth){ drawOCRFrame(480); $('poster').src = makeThumb(); }
+  } catch(e){}
+  if (token !== loadToken) return;
+  ready = true;
+  setStepDone(1, true);
+  refreshRun();
+  updateEstimate();
+  srSay('Video listo. Dura ' + fmt(vid.duration) + '.');
 });
 vid.addEventListener('error', () => {
-  $('videoInfo').innerHTML = '<span style="color:var(--warn)">El navegador no pudo abrir este video. Prueba con un archivo mp4 o webm.</span>';
+  if (!videoFile) return;
+  videoFailed('El navegador no pudo abrir este video. Prueba con un archivo mp4 o webm.');
+});
+$('video').addEventListener('change', e => {
+  const f = e.target.files && e.target.files[0];
+  handleFile(f);
+  e.target.value = '';
+});
+$('changeVideo').addEventListener('click', () => $('video').click());
+
+// arrastrar un video a cualquier parte de la página
+let dragDepth = 0;
+const hasFiles = e => !!(e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files'));
+window.addEventListener('dragenter', e => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  dragDepth++;
+  if (!running) document.body.classList.add('dragging');
+});
+window.addEventListener('dragover', e => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = running ? 'none' : 'copy';
+});
+window.addEventListener('dragleave', e => {
+  if (!hasFiles(e)) return;
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (!dragDepth) document.body.classList.remove('dragging');
+});
+window.addEventListener('drop', e => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  dragDepth = 0;
+  document.body.classList.remove('dragging');
+  if (running) return;
+  const f = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (f) handleFile(f);
 });
 
+// ---------- ajustes de capturas ----------
+function getStep(){ return Math.max(1, parseInt($('interval').value, 10) || 5); }
 $('interval').addEventListener('input', updateEstimate);
+$('interval').addEventListener('change', () => { $('interval').value = getStep(); updateEstimate(); });
+$('dedup').addEventListener('change', updateEstimate);
+$('useOCR').addEventListener('change', () => {
+  const on = $('useOCR').checked;
+  $('ocrLangWrap').hidden = !on;
+  $('ocrTag').hidden = !on;
+});
 function updateEstimate(){
-  if (!ready) return;
-  const step = Math.max(1, parseInt($('interval').value)||5);
-  const n = Math.floor(vid.duration/step)+1;
-  let msg = 'Se revisarán alrededor de ' + n + ' momentos. Con el guardado inteligente se quedan los cambios de pantalla más una imagen cada 45 segundos, así que el documento tendrá menos imágenes que eso.';
+  const el = $('estimate');
+  if (!ready){ el.textContent = ''; return; }
+  const step = getStep();
+  const n = Math.floor(vid.duration / step) + 1;
+  let msg = 'Se revisarán unos ' + n + ' momentos del video.';
+  msg += $('dedup').checked ? ' Como solo se guardan los cambios de pantalla, el documento tendrá menos imágenes que eso.' : ' El documento tendrá esa misma cantidad de imágenes.';
   if (n > 300) msg += ' Si va lento, sube los segundos.';
-  $('estimate').textContent = msg;
+  el.textContent = msg;
 }
 
 // utilidades
@@ -571,11 +1093,10 @@ async function transcribeAudio(pcm, quality, spoken, onStatus){
 }
 
 // ---------- panel de modelos guardados ----------
-let busy = false, busyKey = null;
 function setBusy(b){
   busy = b;
-  $('run').disabled = b || !ready;
   document.querySelectorAll('.models button').forEach(x => { x.disabled = b; });
+  refreshRun();
 }
 const rowEls = {};
 const optBase = {};
@@ -587,7 +1108,7 @@ function buildRows(){
     const m = MODELS[key];
     const row = document.createElement('div');
     row.className = 'mrow';
-    row.innerHTML = '<div class="mname">' + m.name + ' <span class="msub">' + m.short + '</span><small class="mstate">Revisando...</small></div><button type="button" class="btn-ghost" style="display:none"></button>';
+    row.innerHTML = '<div class="mname">' + m.name + ' <span class="msub">' + m.short + '</span><small class="mstate">Revisando...</small></div><button type="button" class="btn ghost sm" style="display:none"></button>';
     const btn = row.querySelector('button');
     btn.addEventListener('click', () => { if (btn.dataset.act === 'del') deleteModel(key); else if (btn.dataset.act === 'save') saveModel(key); });
     box.appendChild(row);
@@ -603,7 +1124,8 @@ function setRow(key, text, cls, act){
   r.btn.style.display = '';
   r.btn.dataset.act = act;
   r.btn.textContent = act === 'del' ? 'Borrar' : act === 'busy' ? 'Guardando...' : 'Guardar';
-  r.btn.className = act === 'save' ? 'btn-line' : 'btn-ghost';
+  r.btn.className = 'btn sm ' + (act === 'save' ? 'outline' : act === 'del' ? 'ghost danger-text' : 'ghost');
+  r.btn.setAttribute('aria-label', r.btn.textContent + ', modelo ' + MODELS[key].name);
   r.btn.disabled = busy;
 }
 function setOption(key, size, saved, unavailable){
@@ -697,7 +1219,8 @@ async function saveModel(key){
 async function deleteModel(key){
   if (busy) return;
   const m = MODELS[key];
-  if (!confirm('¿Borrar el modelo ' + m.name.toLowerCase() + ' de este navegador? Para volver a usarlo se descarga de nuevo.')) return;
+  const yes = await askConfirm('¿Borrar el modelo ' + m.name.toLowerCase() + '?', 'Se quita de este navegador. Para volver a usarlo se descarga de nuevo.', 'Borrar modelo');
+  if (!yes) return;
   if (loaded && loaded.label === m.label) await dropLoaded();
   const c = await openModelCache();
   if (c){
@@ -706,15 +1229,18 @@ async function deleteModel(key){
   clearRecs(m.id);
   $('modelsMsg').innerHTML = '';
   await renderModels();
+  toast('Modelo borrado');
 }
 async function deleteAll(){
   if (busy) return;
-  if (!confirm('¿Borrar todos los modelos de voz de este navegador? Para volver a usarlos se descargan de nuevo.')) return;
+  const yes = await askConfirm('¿Borrar todos los modelos?', 'Se quitan todos los modelos de voz de este navegador. Para volver a usarlos se descargan de nuevo.', 'Borrar todos');
+  if (!yes) return;
   await dropLoaded();
   try { await caches.delete(MODEL_CACHE); } catch(e){}
   for (const k of ORDER) clearRecs(MODELS[k].id);
   $('modelsMsg').innerHTML = '';
   await renderModels();
+  toast('Modelos borrados');
 }
 
 // ---------- transcripción en un servidor ----------
@@ -798,43 +1324,74 @@ async function callServer(path, opts){
   }
   return data;
 }
+function setServerState(text, state){
+  const s = $('serverState');
+  s.textContent = text;
+  s.dataset.state = state || '';
+}
+let serverChecked = false;
 async function testServer(){
-  const st = $('serverState');
-  if (!serverURL()){ st.textContent = 'Escribe primero la dirección del servidor.'; st.className = 'hint bad'; return; }
-  st.textContent = 'Probando...'; st.className = 'hint';
+  if (!serverURL()){
+    setServerState('Escribe la dirección del servidor.', 'bad');
+    $('serverMore').open = true;
+    return;
+  }
+  serverChecked = true;
+  setServerState('Revisando la conexión...', 'busy');
+  $('testServer').disabled = true;
   try {
     const d = await callServer('/', { method:'GET', headers: serverHeaders() });
     const s = d.servicios || [];
     const nombres = s.map(x => x === 'groq' ? 'Groq' : 'Cloudflare');
-    st.textContent = 'Conectado. ' + (nombres.length > 1 ? 'Usa ' + nombres.join(' y ') + ', unos 680 minutos gratis al día.' : nombres.length ? 'Usa ' + nombres[0] + '.' : 'Listo para transcribir.');
-    st.className = 'hint ok';
-  } catch(e){ st.textContent = e.message; st.className = 'hint bad'; }
+    setServerState('Conectado. ' + (nombres.length > 1 ? 'Usa ' + nombres.join(' y ') + ', unos 680 minutos gratis al día.' : nombres.length ? 'Usa ' + nombres[0] + '.' : 'Listo para transcribir.'), 'ok');
+  } catch(e){
+    setServerState(e.message, 'bad');
+    $('serverMore').open = true;
+  } finally {
+    $('testServer').disabled = false;
+  }
 }
 
-async function transcribeServer(pcm, spoken, onStatus){
-  if (!serverURL()) throw new Error('Falta la dirección del servidor en el paso 3.');
+// cancelar
+function cancelError(){ const e = new Error('Proceso cancelado.'); e.cancel = true; return e; }
+function checkCancel(){ if (cancelRun) throw cancelError(); }
+// espera que se corta si la persona cancela
+function sleep(ms){
+  return new Promise(res => {
+    const end = Date.now() + ms;
+    const tick = () => { if (cancelRun || Date.now() >= end) res(); else setTimeout(tick, 250); };
+    tick();
+  });
+}
+
+async function transcribeServer(pcm, spoken, onStatus, onPiece){
+  if (!serverURL()) throw new Error('Falta la dirección del servidor. Escríbela en Cambiar servidor, en el paso 2.');
   const langMap = {spanish:'es', english:'en'};
   const q = langMap[spoken] ? '?idioma=' + langMap[spoken] : '';
   const pieces = splitPCM(pcm);
   const results = new Array(pieces.length);
   let next = 0, done = 0, failed = 0, fatal = null;
+  const mark = (i, state) => { if (onPiece) onPiece(pieces[i][0] / SR, pieces[i][1] / SR, state); };
   onStatus('Enviando el audio al servidor, 0 de ' + pieces.length + ' partes.', 0);
 
   async function one(i){
     const [a, b] = pieces[i];
     const t0 = a / SR;
-    if (isSilent(pcm, a, b)) return [];
+    if (isSilent(pcm, a, b)){ mark(i, 'quiet'); return []; }
     const body = encodeWAV(pcm.subarray(a, b));
     let tries = 0, waits = 0;
     while (true){
+      if (cancelRun) throw cancelError();
       try {
         const data = await callServer('/' + q, { method:'POST', headers: serverHeaders({'Content-Type':'audio/wav'}), body });
         const segs = (data.segments || [])
           .filter(s => s && s.text && s.text.trim())
           .map(s => ({time: t0 + (Number(s.start) || 0), text: s.text.trim()}));
         if (!segs.length && data.text && data.text.trim()) segs.push({time: t0, text: data.text.trim()});
+        mark(i, '');
         return segs;
       } catch(e){
+        if (e.cancel) throw e;
         if (e.fatal){ fatal = fatal || e; throw e; }
         if (e.wait != null){
           // el servicio pidió una pausa por su límite por minuto u hora
@@ -842,22 +1399,23 @@ async function transcribeServer(pcm, spoken, onStatus){
             const f = new Error('Se llegó al límite por hora del servicio. Intenta de nuevo en unos ' + Math.max(1, Math.ceil(e.wait / 60)) + ' minutos.');
             f.fatal = true; fatal = fatal || f; throw f;
           }
-          onStatus('El servicio pidió una pausa corta, sigo en ' + Math.ceil(e.wait) + ' segundos.');
-          await new Promise(r => setTimeout(r, (e.wait + 1) * 1000));
+          onStatus('El servicio pidió una pausa corta. Sigo en ' + Math.ceil(e.wait) + ' segundos.');
+          await sleep((e.wait + 1) * 1000);
           continue;
         }
         if (!e.retry || ++tries >= 3) throw e;
-        await new Promise(r => setTimeout(r, 1500 * tries));
+        await sleep(1500 * tries);
       }
     }
   }
   async function lane(){
-    while (next < pieces.length && !fatal){
+    while (next < pieces.length && !fatal && !cancelRun){
       const i = next++;
       try { results[i] = await one(i); }
       catch(e){
-        if (e.fatal) return;
+        if (e.fatal || e.cancel) return;
         failed++;
+        mark(i, 'bad');
         results[i] = [{time: pieces[i][0] / SR, text: '(No se pudo transcribir este tramo)'}];
       }
       done++;
@@ -865,6 +1423,7 @@ async function transcribeServer(pcm, spoken, onStatus){
     }
   }
   await Promise.all(Array.from({length: Math.min(EN_PARALELO, pieces.length)}, lane));
+  if (cancelRun) throw cancelError();
   let stopped = '';
   if (fatal){
     // si ya había texto, se entrega lo transcrito y se marca dónde quedó cortado
@@ -883,13 +1442,18 @@ async function transcribeServer(pcm, spoken, onStatus){
 
 // cambio entre servidor, navegador y texto pegado
 function currentMode(){ return document.querySelector('input[name="src"]:checked').value; }
+function syncChoices(){
+  document.querySelectorAll('.choice').forEach(c => c.classList.toggle('on', c.querySelector('input').checked));
+}
 function showMode(mode){
-  $('spokenWrap').style.display = mode === 'paste' ? 'none' : '';
-  $('serverOpts').style.display = mode === 'server' ? '' : 'none';
-  $('autoOpts').style.display = mode === 'auto' ? '' : 'none';
-  $('pasteOpts').style.display = mode === 'paste' ? '' : 'none';
+  syncChoices();
+  $('spokenWrap').hidden = mode === 'paste';
+  $('serverOpts').hidden = mode !== 'server';
+  $('autoOpts').hidden = mode !== 'auto';
+  $('pasteOpts').hidden = mode !== 'paste';
   // el panel de modelos solo se revisa si se eligió el navegador, así en modo servidor no hay ninguna consulta a Hugging Face
   if (mode === 'auto') renderModels();
+  if (mode === 'server' && !serverChecked && serverURL()) testServer();
 }
 function initModes(){
   const saved = lsGet('modo-transcripcion', 'server');
@@ -902,8 +1466,8 @@ function initModes(){
     lsSet('modo-transcripcion', currentMode());
     showMode(currentMode());
   }));
-  $('serverUrl').addEventListener('change', () => { lsSet('servidor-url', serverURL()); $('serverState').textContent = ''; });
-  $('serverKey').addEventListener('change', () => lsSet('servidor-clave', ($('serverKey').value || '').trim()));
+  $('serverUrl').addEventListener('change', () => { lsSet('servidor-url', serverURL()); testServer(); });
+  $('serverKey').addEventListener('change', () => { lsSet('servidor-clave', ($('serverKey').value || '').trim()); if (serverURL()) testServer(); });
   $('testServer').addEventListener('click', testServer);
   showMode(currentMode());
 }
@@ -916,171 +1480,372 @@ function loadScript(url){
     document.head.appendChild(s);
   });
 }
+// ---------- avance ----------
+const PHASES = ['audio', 'tr', 'img', 'doc'];
+const PHASE_SAY = {audio:'Sacando el audio del video.', tr:'Transcribiendo.', img:'Tomando las capturas.', doc:'Armando el documento.'};
+let phaseNow = null, phaseSkip = new Set(), phaseBad = new Set();
+function paintPhases(){
+  const idx = phaseNow === 'end' ? PHASES.length : PHASES.indexOf(phaseNow);
+  document.querySelectorAll('#phases li').forEach((li, i) => {
+    const k = li.dataset.phase;
+    li.dataset.state = phaseSkip.has(k) ? 'skip' : phaseBad.has(k) ? 'warn' : i < idx ? 'done' : i === idx ? 'active' : '';
+    if (i === idx) li.setAttribute('aria-current', 'step'); else li.removeAttribute('aria-current');
+  });
+}
+function phaseInit(skip){ phaseSkip = new Set(skip || []); phaseBad = new Set(); phaseNow = null; paintPhases(); }
+function setPhase(p){ phaseNow = p; paintPhases(); if (PHASE_SAY[p]) srSay(PHASE_SAY[p]); }
+function phaseWarn(){ for (const p of arguments) if (p) phaseBad.add(p); paintPhases(); }
 
-// proceso principal
+function setPct(p){
+  p = Math.max(0, Math.min(100, Math.round(p)));
+  $('barFill').style.width = p + '%';
+  $('bar').setAttribute('aria-valuenow', p);
+  if (running) document.title = p + '% ' + BASE_TITLE;
+}
+function setStatus(text){ $('status').textContent = text; }
+function setBar(pct, text){ setPct(pct); setStatus(text); }
+
+let timerInt = null, tStart = 0;
+function clock(ms){ const s = Math.floor(ms/1000); return Math.floor(s/60) + ':' + String(s%60).padStart(2,'0'); }
+function startTimer(){ tStart = performance.now(); if (timerInt) clearInterval(timerInt); $('timer').textContent = ''; timerInt = setInterval(() => { $('timer').textContent = 'Tiempo transcurrido ' + clock(performance.now() - tStart); }, 500); }
+function stopTimer(){ if (timerInt){ clearInterval(timerInt); timerInt = null; } }
+
+// pista del video
+let trackDur = 1;
+function tpct(t){ return Math.max(0, Math.min(100, t / trackDur * 100)); }
+function trackReset(d){
+  trackDur = d > 0 ? d : 1;
+  $('laneAudio').innerHTML = '';
+  $('laneImg').innerHTML = '';
+  $('trackEnd').textContent = fmt(trackDur);
+  movePlayhead(null);
+}
+function trackAudio(a, b, state){
+  const el = document.createElement('i');
+  el.className = 'seg' + (state ? ' ' + state : '');
+  el.style.left = tpct(a) + '%';
+  el.style.width = Math.max(0.4, tpct(b) - tpct(a)) + '%';
+  $('laneAudio').appendChild(el);
+}
+function drawSegments(tr){
+  if (!tr) return;
+  if (!tr.timed){ if (tr.whole) trackAudio(0, trackDur, 'quiet'); return; }
+  const s = tr.segments;
+  for (let i = 0; i < s.length; i++){
+    const end = i + 1 < s.length ? Math.min(s[i+1].time, s[i].time + 30) : Math.min(trackDur, s[i].time + 10);
+    trackAudio(s[i].time, Math.max(end, s[i].time + 0.5), '');
+  }
+}
+function trackFrame(t){
+  const el = document.createElement('i');
+  el.className = 'tick';
+  el.style.left = tpct(t) + '%';
+  $('laneImg').appendChild(el);
+}
+function movePlayhead(t){
+  const p = $('playhead');
+  if (t == null){ p.hidden = true; return; }
+  p.hidden = false;
+  p.style.left = tpct(t) + '%';
+}
+
+$('cancel').addEventListener('click', () => {
+  if (!running) return;
+  cancelRun = true;
+  $('cancel').disabled = true;
+  $('cancel').textContent = 'Cancelando...';
+  setStatus(currentMode() === 'auto' && phaseNow !== 'img' ? 'Se cancelará apenas termine este paso.' : 'Cancelando...');
+});
+
+// ---------- proceso principal ----------
 let worker = null;
 let lastFrames = [];
 $('run').addEventListener('click', run);
 
 async function run(){
   if (!ready || busy) return;
+  cancelRun = false;
+  running = true;
   setBusy(true);
-  $('loadBanner').innerHTML = '';
-  $('timeline').innerHTML = '';
-  $('outStep').style.display = 'none';
-  $('progress').style.display = 'block';
+  $('setup').disabled = true;
+  clearResults();
+  const source = currentMode();
+  phaseInit(source === 'paste' ? ['audio', 'tr'] : []);
+  trackReset(vid.duration);
+  $('progress').hidden = false;
+  $('cancel').hidden = false;
+  $('cancel').disabled = false;
+  $('cancel').textContent = 'Cancelar';
   setBar(0, 'Preparando...');
   startTimer();
-  let trMs = 0, framesMs = 0;
+  scrollToEl($('step4'));
+  let trMs = 0, framesMs = 0, ok = false;
 
   try {
-  const step = Math.max(1, parseInt($('interval').value)||5);
-  const dedup = $('dedup').checked;
-  const useOCR = $('useOCR').checked;
-  const lang = useOCR ? $('lang').value : 'spa';
-  const source = document.querySelector('input[name="src"]:checked').value;
+    const step = getStep();
+    const dedup = $('dedup').checked;
+    const useOCR = $('useOCR').checked;
+    const lang = useOCR ? $('lang').value : 'spa';
 
-  // 1. transcripción
-  let tr = {timed:false, segments:[], whole:''};
-  if (source === 'server'){
-    try {
-      setBar(3, 'Sacando el audio del video...');
-      const pcm = await getPCM16k(videoFile);
-      const trStatus = (msg, pct) => { if (pct != null) $('barFill').style.width = (5 + Math.round(pct * 0.33)) + '%'; $('status').textContent = msg; };
-      tr = await transcribeServer(pcm, $('spoken').value, trStatus);
-      setBar(38, 'Transcripción lista.');
-      if (tr.failed) $('loadBanner').innerHTML += '<div class="banner warn">' + tr.failed + ' partes del audio no se pudieron transcribir y quedaron marcadas en el documento.</div>';
-      if (tr.stopped) $('loadBanner').innerHTML += '<div class="banner warn">La transcripción quedó incompleta. ' + escapeHtml(tr.stopped) + ' El documento marca desde dónde falta.</div>';
-    } catch(err){
-      $('loadBanner').innerHTML = '<div class="banner warn">No se pudo transcribir en el servidor. ' + escapeHtml(err.message || '') + ' Se sigue con las imágenes.</div>';
-    }
-  } else if (source === 'auto'){
-    try {
-      setBar(3, 'Sacando el audio del video...');
-      const pcm = await getPCM16k(videoFile);
-      const trStatus = (msg, pct) => { if (pct != null) $('barFill').style.width = (5 + Math.round(pct * 0.3)) + '%'; $('status').textContent = msg; };
-      tr = await transcribeAudio(pcm, $('quality').value, $('spoken').value, trStatus);
-      setBar(38, 'Transcripción lista.');
-      if (tr.notSaved) $('loadBanner').innerHTML += '<div class="banner warn">El navegador no dejó guardar el modelo, seguramente por falta de espacio en el disco o por estar en incógnito. La próxima vez se va a descargar de nuevo.</div>';
-    } catch(err){
-      $('loadBanner').innerHTML = '<div class="banner warn">No se pudo transcribir el audio en este navegador. Se sigue con las imágenes. Si necesitas la transcripción, prueba en Chrome de computador, o pega tu propia transcripción.</div>';
-    }
-  } else {
-    tr = parseTranscript($('transcript').value);
-  }
-  trMs = performance.now() - tStart;
-
-  // 2. lector de texto en pantalla (opcional, apagado por defecto)
-  let ocrOn = false;
-  if (useOCR){
-    if (typeof Tesseract === 'undefined'){
-      try { await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'); } catch(e){}
-    }
-    if (typeof Tesseract === 'undefined'){
-      $('loadBanner').innerHTML += '<div class="banner warn">No se pudo cargar el OCR. Se siguen extrayendo las imágenes.</div>';
-    } else {
+    // 1. transcripción
+    let tr = {timed:false, segments:[], whole:''};
+    if (source === 'server' || source === 'auto'){
       try {
-        setBar(40, 'Cargando el lector de texto...');
-        worker = await Tesseract.createWorker(lang, 1, {
-          workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/worker.min.js',
-          corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5',
-          langPath: 'https://tessdata.projectnaptha.com/4.0.0'
-        });
-        ocrOn = true;
+        setPhase('audio');
+        setBar(3, 'Sacando el audio del video...');
+        const pcm = await getPCM16k(videoFile);
+        checkCancel();
+        setPhase('tr');
+        const span = source === 'server' ? 0.33 : 0.3;
+        const trStatus = (msg, pct) => { if (pct != null) setPct(5 + Math.round(pct * span)); setStatus(msg); };
+        if (source === 'server'){
+          tr = await transcribeServer(pcm, $('spoken').value, trStatus, trackAudio);
+          if (tr.failed){ addBanner('warn', tr.failed + (tr.failed === 1 ? ' parte del audio no se pudo transcribir y quedó marcada' : ' partes del audio no se pudieron transcribir y quedaron marcadas') + ' en el documento.'); phaseWarn('tr'); }
+          if (tr.stopped){ addBanner('warn', 'La transcripción quedó incompleta. ' + tr.stopped + ' El documento marca desde dónde falta.'); phaseWarn('tr'); }
+        } else {
+          tr = await transcribeAudio(pcm, $('quality').value, $('spoken').value, trStatus);
+          checkCancel();
+          drawSegments(tr);
+          if (tr.notSaved) addBanner('warn', 'El navegador no dejó guardar el modelo, seguramente por falta de espacio en el disco o por estar en incógnito. La próxima vez se va a descargar de nuevo.');
+        }
+        setBar(38, 'Transcripción lista.');
       } catch(err){
-        $('loadBanner').innerHTML += '<div class="banner warn">No se pudo iniciar el OCR. Se extraen las imágenes sin leer su texto.</div>';
+        if (err && err.cancel) throw err;
+        phaseWarn('tr', phaseNow === 'audio' ? 'audio' : null);
+        if (source === 'server') addBanner('warn', 'No se pudo transcribir en el servidor. ' + ((err && err.message) || '') + ' Se siguió solo con las imágenes.');
+        else addBanner('warn', 'No se pudo transcribir el audio en este navegador, así que se siguió solo con las imágenes. Si necesitas la transcripción, prueba en Chrome de computador o pega tu propia transcripción.');
+      }
+    } else {
+      tr = parseTranscript($('transcript').value);
+      drawSegments(tr);
+      if (!tr.whole) addBanner('info', 'No pegaste ninguna transcripción, así que el documento solo tendrá las imágenes.');
+    }
+    trMs = performance.now() - tStart;
+    checkCancel();
+
+    // 2. lector de texto en pantalla (opcional, apagado por defecto)
+    setPhase('img');
+    let ocrOn = false;
+    if (useOCR){
+      if (typeof Tesseract === 'undefined'){
+        try { await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'); } catch(e){}
+      }
+      if (typeof Tesseract === 'undefined'){
+        addBanner('warn', 'No se pudo cargar el OCR. Se siguen tomando las imágenes, sin leer su texto.');
+      } else {
+        try {
+          setBar(40, 'Cargando el lector de texto...');
+          worker = await Tesseract.createWorker(lang, 1, {
+            workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/worker.min.js',
+            corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5',
+            langPath: 'https://tessdata.projectnaptha.com/4.0.0'
+          });
+          ocrOn = true;
+        } catch(err){
+          addBanner('warn', 'No se pudo iniciar el OCR. Se toman las imágenes sin leer su texto.');
+        }
       }
     }
-  }
+    checkCancel();
 
-  // 3. imágenes + OCR
-  const framesStart = performance.now();
-  const times = [];
-  for (let t=0; t<=vid.duration; t+=step) times.push(t);
-  const frames = [];
-  let keptSig = null, lastKeptT = 0;
-  for (let i=0; i<times.length; i++){
-    const t = times[i];
-    const pct = 42 + Math.round((i/times.length)*55);
-    setBar(pct, 'Tomando imagen ' + (i+1) + ' de ' + times.length + ' (' + fmt(t) + ')');
-    await seekTo(t);
-    drawOCRFrame(1600);
+    // 3. imágenes + OCR
+    const framesStart = performance.now();
+    const times = [];
+    for (let t = 0; t <= vid.duration; t += step) times.push(t);
+    const frames = [];
+    let keptSig = null, lastKeptT = 0;
+    for (let i = 0; i < times.length; i++){
+      checkCancel();
+      const t = times[i];
+      const pct = 42 + Math.round((i / times.length) * 55);
+      setBar(pct, 'Revisando el momento ' + (i+1) + ' de ' + times.length + ', en ' + fmt(t) + '.');
+      movePlayhead(t);
+      await seekTo(t);
+      drawOCRFrame(1600);
 
-    if (dedup){
-      const sig = signature32();
-      if (keptSig){
-        const ch = changeScore(sig, keptSig);
-        const changed = ch.mean > 12 || ch.fraction > 0.15;
-        const heartbeat = (t - lastKeptT) >= 45;   // piso: al menos una cada 45 s
-        if (!changed && !heartbeat) continue;
+      if (dedup){
+        const sig = signature32();
+        if (keptSig){
+          const ch = changeScore(sig, keptSig);
+          const changed = ch.mean > 12 || ch.fraction > 0.15;
+          const heartbeat = (t - lastKeptT) >= 45;   // piso: al menos una cada 45 s
+          if (!changed && !heartbeat) continue;
+        }
+        keptSig = sig;
+        lastKeptT = t;
       }
-      keptSig = sig;
-      lastKeptT = t;
+
+      const thumb = makeThumb();
+      const name = 'frame-' + String(frames.length+1).padStart(3,'0') + '-' + fmtFile(t) + '.jpg';
+      const imgBlob = await canvasBlob(ocrCanvas, 0.85);
+      let ocrText = '';
+      if (ocrOn && worker){
+        setBar(pct, 'Leyendo el texto de la pantalla en ' + fmt(t) + '...');
+        try {
+          const res = await worker.recognize(ocrCanvas);
+          ocrText = (res.data.text||'').replace(/\n{2,}/g,'\n').trim();
+        } catch(e){ ocrText = ''; }
+      }
+      const f = {time:t, ocr:ocrText, thumb, name, imgBlob, ocrOn, timed:tr.timed, said:''};
+      if (frames.length) fillSaid(frames[frames.length - 1], t, tr);
+      frames.push(f);
+      addFrameCard(f);
+      trackFrame(t);
     }
+    if (frames.length) fillSaid(frames[frames.length - 1], Infinity, tr);
+    movePlayhead(null);
 
-    const thumb = makeThumb();
-    const name = 'frame-' + String(frames.length+1).padStart(3,'0') + '-' + fmtFile(t) + '.jpg';
-    const imgBlob = await canvasBlob(ocrCanvas, 0.85);
-    let ocrText = '';
-    if (ocrOn && worker){
-      setBar(pct, 'Leyendo el texto de la imagen ' + (i+1) + '...');
-      try {
-        const res = await worker.recognize(ocrCanvas);
-        ocrText = (res.data.text||'').replace(/\n{2,}/g,'\n').trim();
-      } catch(e){ ocrText = ''; }
+    if (worker){ try { await worker.terminate(); } catch(e){} worker = null; }
+    framesMs = performance.now() - framesStart;
+
+    // 4. documento
+    setPhase('doc');
+    lastFrames = frames;
+    setBar(98, 'Juntando todo...');
+    const total = performance.now() - tStart;
+    const spokenMap = {spanish:'español', english:'inglés', auto:'detectado automáticamente'};
+    const meta = {
+      file: videoFile ? videoFile.name : '',
+      duration: vid.duration,
+      interval: step,
+      dedup: dedup,
+      model: source === 'paste' ? 'transcripción pegada por el usuario' : (tr.model || 'modelo de voz'),
+      spoken: source === 'paste' ? '' : (spokenMap[$('spoken').value] || $('spoken').value),
+      total: total, trMs: trMs, framesMs: framesMs
+    };
+    $('output').value = buildDoc(frames, tr, ocrOn, meta);
+    setPhase('end');
+    setBar(100, 'Listo. ' + frames.length + (frames.length === 1 ? ' imagen' : ' imágenes') + (trMs > 300 ? ', transcripción en ' + clock(trMs) : '') + ', capturas en ' + clock(framesMs) + '.');
+    $('timer').textContent = 'Tiempo total ' + clock(total);
+    showResult(frames, total);
+    ok = true;
+  } catch(err){
+    if (err && err.cancel){
+      $('progress').hidden = true;
+      resetGallery();
+      addBanner('info', 'Cancelaste el proceso. Puedes cambiar los ajustes y generar de nuevo.');
+      srSay('Proceso cancelado.');
+    } else {
+      phaseWarn(phaseNow);
+      movePlayhead(null);
+      setStatus('Se detuvo por un error.');
+      addBanner('warn', 'No se pudo terminar el documento. ' + ((err && err.message) || '') + ' Prueba de nuevo o con otro archivo de video.');
     }
-    const said = tr.timed ? tr.segments.filter(x => x.time >= t && x.time < t+step).map(x => x.text).join(' ') : '';
-    frames.push({time:t, ocr:ocrText, thumb, name, imgBlob});
-    addFrameCard({time:t, said, ocr:ocrText, ocrOn, thumb});
-  }
-
-  if (worker){ try { await worker.terminate(); } catch(e){} worker = null; }
-  framesMs = performance.now() - framesStart;
-
-  // 4. documento
-  lastFrames = frames;
-  setBar(98, 'Juntando todo...');
-  const total = performance.now() - tStart;
-  const spokenMap = {spanish:'español', english:'inglés', auto:'detectado automáticamente'};
-  const meta = {
-    file: videoFile ? videoFile.name : '',
-    duration: vid.duration,
-    interval: step,
-    dedup: dedup,
-    model: source === 'paste' ? 'transcripción pegada por el usuario' : (tr.model || 'modelo de voz'),
-    spoken: source === 'paste' ? '' : (spokenMap[$('spoken').value] || $('spoken').value),
-    total: total, trMs: trMs, framesMs: framesMs
-  };
-  $('output').value = buildDoc(frames, tr, ocrOn, meta);
-  $('outStep').style.display = 'block';
-  setBar(100, 'Listo en ' + clock(total) + '. ' + frames.length + ' imágenes' + (trMs > 300 ? ', transcripción ' + clock(trMs) : '') + ', capturas ' + clock(framesMs) + '.');
-  $('timer').textContent = 'Tiempo total ' + clock(total);
-  $('outStep').scrollIntoView({behavior:'smooth', block:'start'});
   } finally {
+    if (worker){ try { await worker.terminate(); } catch(e){} worker = null; }
     stopTimer();
+    running = false;
+    $('cancel').hidden = true;
+    $('setup').disabled = false;
     setBusy(false);
+    document.title = ok ? 'Listo. ' + BASE_TITLE : BASE_TITLE;
     if (currentMode() === 'auto') renderModels();
   }
 }
 
-function setBar(pct, text){
-  $('barFill').style.width = pct + '%';
-  $('status').textContent = text;
+function showResult(frames, total){
+  hasResult = true;
+  $('statFrames').textContent = frames.length;
+  $('statDur').textContent = fmt(vid.duration);
+  $('statTime').textContent = clock(total);
+  $('outStep').hidden = false;
+  $('outMsg').innerHTML = '';
+  setStepDone(4, true);
+  refreshRun();
+  scrollToEl($('outStep'));
+  srSay('Documento listo, con ' + frames.length + (frames.length === 1 ? ' captura.' : ' capturas.'));
 }
-let timerInt = null, tStart = 0;
-function clock(ms){ const s = Math.floor(ms/1000); return Math.floor(s/60) + ':' + String(s%60).padStart(2,'0'); }
-function startTimer(){ tStart = performance.now(); if (timerInt) clearInterval(timerInt); timerInt = setInterval(() => { $('timer').textContent = 'Tiempo transcurrido ' + clock(performance.now() - tStart); }, 500); }
-function stopTimer(){ if (timerInt){ clearInterval(timerInt); timerInt = null; } }
+
+// ---------- capturas en pantalla ----------
+let galleryFrames = [];
+function resetGallery(){
+  galleryFrames = [];
+  $('timeline').innerHTML = '';
+  $('frameCount').textContent = '';
+  $('galleryWrap').hidden = true;
+}
+// el texto de cada captura es lo que se dice desde ella hasta la siguiente
+function fillSaid(f, until, tr){
+  f.said = tr && tr.timed ? tr.segments.filter(x => x.time >= f.time && x.time < until).map(x => x.text).join(' ') : '';
+  updateCardText(f);
+}
+function updateCardText(f){
+  if (!f.card) return;
+  const text = f.said || (f.ocrOn && f.ocr ? f.ocr : '');
+  let shown = text;
+  if (!text && f.timed) shown = 'Sin voz en este tramo';
+  else if (!text && f.ocrOn) shown = 'Sin texto en pantalla';
+  f.card.textContent = shown;
+  f.card.classList.toggle('empty', !text);
+}
 function addFrameCard(f){
-  const div = document.createElement('div');
-  div.className = 'frame';
-  let body = '<div class="t">' + fmt(f.time) + '</div>';
-  if (f.said) body += '<div class="say">' + escapeHtml(f.said) + '</div>';
-  if (f.ocrOn) body += '<div class="ocr">' + (f.ocr ? escapeHtml(f.ocr) : '<span style="font-style:italic">Sin texto</span>') + '</div>';
-  if (!f.said && !f.ocrOn) body += '<div class="ocr empty">El texto hablado va en el documento final. Mira la imagen para el contenido en pantalla.</div>';
-  div.innerHTML = '<img src="' + f.thumb + '" alt="cuadro" /><div>' + body + '</div>';
-  $('timeline').appendChild(div);
+  const idx = galleryFrames.push(f) - 1;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'shot';
+  btn.setAttribute('aria-label', 'Ver la captura de ' + fmt(f.time));
+  const box = document.createElement('span');
+  box.className = 'shot-img';
+  const img = document.createElement('img');
+  img.src = f.thumb;
+  img.alt = '';
+  img.decoding = 'async';
+  const tc = document.createElement('span');
+  tc.className = 'tc';
+  tc.textContent = fmt(f.time);
+  box.append(img, tc);
+  const txt = document.createElement('span');
+  txt.className = 'shot-text';
+  btn.append(box, txt);
+  btn.addEventListener('click', () => openViewer(idx));
+  f.card = txt;
+  updateCardText(f);
+  $('timeline').appendChild(btn);
+  const n = galleryFrames.length;
+  $('frameCount').textContent = n + (n === 1 ? ' captura' : ' capturas');
+  $('galleryWrap').hidden = false;
 }
+
+// vista grande de una captura
+let viewerIdx = 0, viewerURL = null;
+function showViewerAt(i){
+  if (!galleryFrames.length) return;
+  viewerIdx = Math.max(0, Math.min(galleryFrames.length - 1, i));
+  const f = galleryFrames[viewerIdx];
+  if (viewerURL){ URL.revokeObjectURL(viewerURL); viewerURL = null; }
+  if (f.imgBlob){ viewerURL = URL.createObjectURL(f.imgBlob); $('vImg').src = viewerURL; }
+  else $('vImg').src = f.thumb;
+  $('vImg').alt = 'Captura de pantalla en ' + fmt(f.time);
+  $('vTime').textContent = fmt(f.time);
+  $('vName').textContent = f.name;
+  $('vSaid').textContent = f.said || (f.timed ? 'Sin voz en este tramo.' : '');
+  $('vSaid').hidden = !$('vSaid').textContent;
+  $('vOcr').textContent = f.ocrOn ? (f.ocr ? 'En pantalla, según el OCR: ' + f.ocr : 'El OCR no encontró texto en esta captura.') : '';
+  $('vOcr').hidden = !f.ocrOn;
+  $('vPos').textContent = (viewerIdx + 1) + ' de ' + galleryFrames.length;
+  $('vPrev').disabled = viewerIdx === 0;
+  $('vNext').disabled = viewerIdx === galleryFrames.length - 1;
+}
+function openViewer(i){
+  const d = $('viewer');
+  if (typeof d.showModal !== 'function'){
+    const f = galleryFrames[i];
+    if (f && f.imgBlob) window.open(URL.createObjectURL(f.imgBlob), '_blank');
+    return;
+  }
+  showViewerAt(i);
+  d.showModal();
+}
+$('vClose').addEventListener('click', () => $('viewer').close());
+$('vPrev').addEventListener('click', () => showViewerAt(viewerIdx - 1));
+$('vNext').addEventListener('click', () => showViewerAt(viewerIdx + 1));
+$('viewer').addEventListener('keydown', e => {
+  if (e.key === 'ArrowLeft'){ e.preventDefault(); showViewerAt(viewerIdx - 1); }
+  else if (e.key === 'ArrowRight'){ e.preventDefault(); showViewerAt(viewerIdx + 1); }
+});
+$('viewer').addEventListener('click', e => { if (e.target === $('viewer')) $('viewer').close(); });
+$('viewer').addEventListener('close', () => { if (viewerURL){ URL.revokeObjectURL(viewerURL); viewerURL = null; } $('vImg').removeAttribute('src'); });
+
 function escapeHtml(s){ return s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 
 // documento final
@@ -1126,39 +1891,71 @@ function buildDoc(frames, tr, ocrOn, meta){
   }
   return lines.join('\n');
 }
+// ---------- descargas ----------
+function baseName(){
+  const n = videoFile ? videoFile.name.replace(/\.[^.]+$/, '') : '';
+  const clean = n.replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
+  return clean || 'video';
+}
+function saveBlob(blob, name){
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+function outMsg(kind, text){ const m = $('outMsg'); m.innerHTML = ''; m.appendChild(makeBanner(kind, text)); }
 
 $('zipBtn').addEventListener('click', async () => {
-  if (typeof JSZip === 'undefined'){ $('loadBanner').innerHTML = '<div class="banner warn">No se pudo cargar el compresor de archivos. Recarga la página.</div>'; return; }
-  if (!lastFrames.length){ return; }
-  const btn = $('zipBtn'); btn.disabled = true; btn.textContent = 'Comprimiendo...';
+  if (typeof JSZip === 'undefined'){ outMsg('warn', 'No se pudo cargar el compresor de archivos. Revisa la conexión y recarga la página.'); return; }
+  if (!lastFrames.length) return;
+  const btn = $('zipBtn'), label = btn.querySelector('span');
+  btn.disabled = true;
+  label.textContent = 'Comprimiendo...';
+  $('outMsg').innerHTML = '';
   try {
     const zip = new JSZip();
     zip.file('resumen-video.md', $('output').value);
     for (const f of lastFrames){ if (f.imgBlob) zip.file(f.name, f.imgBlob); }
-    const blob = await zip.generateAsync({type:'blob'}, m => { btn.textContent = 'Comprimiendo ' + Math.round(m.percent) + '%'; });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'contexto-video.zip'; a.click(); URL.revokeObjectURL(a.href);
+    const blob = await zip.generateAsync({type:'blob'}, m => { label.textContent = 'Comprimiendo ' + Math.round(m.percent) + '%'; });
+    saveBlob(blob, baseName() + '-contexto.zip');
+    toast('ZIP descargado');
   } catch(e){
-    $('loadBanner').innerHTML = '<div class="banner warn">No se pudo armar el ZIP. Prueba con menos imágenes.</div>';
+    outMsg('warn', 'No se pudo armar el ZIP. Prueba subiendo los segundos del paso 3 para tener menos imágenes.');
   }
-  btn.disabled = false; btn.textContent = 'Descargar imágenes y texto (ZIP)';
+  btn.disabled = false;
+  label.textContent = 'Descargar ZIP';
 });
 
 $('copy').addEventListener('click', async () => {
-  try { await navigator.clipboard.writeText($('output').value); $('copy').textContent = 'Copiado'; setTimeout(()=>$('copy').textContent='Copiar texto', 1500); }
-  catch(e){ $('output').select(); document.execCommand('copy'); }
+  const text = $('output').value;
+  let ok = false;
+  try { await navigator.clipboard.writeText(text); ok = true; }
+  catch(e){
+    $('textDetails').open = true;
+    $('output').select();
+    try { ok = document.execCommand('copy'); } catch(_){}
+  }
+  toast(ok ? 'Texto copiado' : 'Selecciona el texto y cópialo con Ctrl+C');
 });
 $('download').addEventListener('click', () => {
-  const blob = new Blob([$('output').value], {type:'text/markdown'});
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'resumen-video.md';
-  a.click();
-  URL.revokeObjectURL(a.href);
+  saveBlob(new Blob([$('output').value], {type:'text/markdown'}), baseName() + '-resumen.md');
+  toast('Texto descargado');
+});
+
+// avisa antes de cerrar la pestaña si se está generando
+window.addEventListener('beforeunload', e => {
+  if (!running) return;
+  e.preventDefault();
+  e.returnValue = '';
 });
 
 // al abrir la página
 buildRows();
 initModes();
+refreshRun();
 if ('serviceWorker' in navigator && window.isSecureContext && location.protocol.startsWith('http')){
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
