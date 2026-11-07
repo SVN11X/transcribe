@@ -13,6 +13,6 @@ Status: pending, done, skipped. Light: green = apply, yellow = approved move, re
 | 7 | green | done (goals and DESIGN.md left to the owner) | README in English and UTF-8, goals draft, CHANGELOG, DESIGN draft |
 | 8 | green | done | Decision record for third-party scripts |
 | 9 | green | done (workflow standard.yml) | CI: standard check and gitleaks with minimal permissions |
-| 10 | green | pending | Deep code review of `src/` and `worker/` |
+| 10 | green | partly done | Deep review done. Applied: contrast of empty shot text, `:active` state, AudioContext close, blob URL release, dead code removed. Pending, need owner OK: SRI plus opaque cache (SW), https-only server URL and key storage, unverified claims about data retention and quotas, footer publish instructions, theme toggle, models render race, seek timeout, English identifiers, split of index.html |
 | 11 | green | pending | Web audit: WCAG 2.2 AA, 320 px layout, loading and error states |
 | 12 | owner | pending | GitHub About panel, wiki and projects off (`standard.py github . --apply`) |
