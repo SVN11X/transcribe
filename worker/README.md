@@ -20,13 +20,13 @@ npx wrangler login
 npm run deploy
 ```
 
-`npm run check` builds the Worker without deploying it.
+`npm run check` builds the Worker without deploying it. `npm test` runs the access key tests with the Node test runner.
 
 ## Configuration
 
 - `AI`: Workers AI binding, declared in `wrangler.toml`.
 - `GROQ_API_KEY`: optional secret. Set it with `npx wrangler secret put GROQ_API_KEY`.
 - `PAGINAS_PERMITIDAS`: constant in `src/index.js` with the page origins allowed to call the Worker.
-- `CLAVE`: constant in `src/index.js`, empty by default. If you set one, the page must send it in the `X-Clave` header. Do not commit a real value.
+- `CLAVE_ACCESO`: required secret. Set it with `npx wrangler secret put CLAVE_ACCESO`. Every request must send it in the `X-Clave` header. Without the secret the Worker answers 500 `falta-clave-acceso`. A wrong key gets 401 `clave-incorrecta`.
 
 Never write secret values in the repository.
