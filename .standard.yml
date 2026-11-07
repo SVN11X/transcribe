@@ -1,0 +1,40 @@
+# Identity of this repository for the standard.
+# After editing, run: python .standards/scripts/standard.py agents .
+standard: SVN11X/standards@v1
+owner: SVN11X
+name: transcribe
+profile: web
+setup: done
+license: MIT
+content_language: es
+github:
+  description: Web page that turns a video into text and frames for an AI, with in-browser or Cloudflare Worker transcription.
+  homepage: https://svn11x.github.io/transcribe/
+  topics:
+  - web
+  - github-pages
+options:
+  hosting: github-pages
+  build: none
+  motion: subtle
+  three_d: none
+  flows: single
+  theme: both
+parts:
+  worker: software
+part_options:
+  worker:
+    kind: cli
+    architecture: simple
+    layout: single
+    language: python
+extra_folders: {}
+skills:
+- repo-improve
+- code-review
+- web-improve
+- antislop
+- antislop-ui
+- antislop-human
+- antislop-layoutmobile
+- antislop-copywriting

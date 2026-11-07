@@ -1,0 +1,8 @@
+name = "transcribir"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+workers_dev = true
+
+# Workers AI binding. The code reads it as env.AI.
+[ai]
+binding = "AI"

@@ -1,0 +1,14 @@
+{
+  "name": "transcribir-worker",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Cloudflare Worker that transcribes audio chunks for the transcribe web page.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "check": "wrangler deploy --dry-run --outdir dist"
+  },
+  "devDependencies": {
+    "wrangler": "4.158.0"
+  }
+}
