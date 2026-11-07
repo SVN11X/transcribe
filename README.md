@@ -13,7 +13,7 @@ Live page: https://svn11x.github.io/transcribe/
 
 ## Status
 
-TODO(owner): state the project status. Audience and goals are still to be written in `docs/goals.md`.
+Active. A personal tool used by the owner and close contacts. Goals are in `docs/goals.md`.
 
 ## Layout
 

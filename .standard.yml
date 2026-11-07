@@ -4,7 +4,7 @@ standard: SVN11X/standards@v1
 owner: SVN11X
 name: transcribe
 profile: web
-setup: pending
+setup: done
 license: MIT
 content_language: es
 github:
