@@ -7,7 +7,7 @@ Status: pending, done, skipped. Light: green = apply, yellow = approved move, re
 | 1 | yellow | done | Adopt the standard (web profile), move `index.html` and `sw.js` to `src/` |
 | 2 | yellow | pending | Publish Pages with `.github/workflows/pages.yml` (owner switches the Pages source to GitHub Actions) |
 | 3 | green | done | `worker/` part (software profile) with `wrangler.toml` and the `AI` binding. Code pasted by the owner from the Cloudflare dashboard |
-| 4 | red | pending | Scan the Worker code for secrets before committing it |
+| 4 | red | done (no secrets found in worker code) | Scan the Worker code for secrets before committing it |
 | 5 | green | done | Fix the page text that names a file that never existed |
 | 6 | green | done | Pin `tesseract.js` and `tesseract.js-core` to exact versions |
 | 7 | green | done (goals and DESIGN.md left to the owner) | README in English and UTF-8, goals draft, CHANGELOG, DESIGN draft |

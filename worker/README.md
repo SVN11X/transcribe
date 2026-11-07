@@ -7,9 +7,7 @@ Binding: Workers AI as `AI` (declared in `wrangler.toml`).
 
 ## Status
 
-The code in `src/index.js` is a placeholder. The deployed Worker was edited in the Cloudflare dashboard, so the owner has to paste its code here.
-
-TODO(owner): copy the code from the dashboard (Workers & Pages, transcribir, Edit code) into `src/index.js`. Remove any secret you find in it.
+`src/index.js` is the deployed code, copied from the Cloudflare dashboard. It uses Workers AI first and Groq when the Workers AI quota runs out.
 
 ## Run and deploy
 
@@ -24,6 +22,11 @@ npm run deploy
 
 `npm run check` builds the Worker without deploying it.
 
-## Secrets
+## Configuration
 
-The page text mentions an optional Groq key and an optional access key sent in the `X-Clave` header. TODO(owner): confirm the secret names the code reads from `env` and list them here. Set them with `npx wrangler secret put <NAME>`. Never write their values in the repository.
+- `AI`: Workers AI binding, declared in `wrangler.toml`.
+- `GROQ_API_KEY`: optional secret. Set it with `npx wrangler secret put GROQ_API_KEY`.
+- `PAGINAS_PERMITIDAS`: constant in `src/index.js` with the page origins allowed to call the Worker.
+- `CLAVE`: constant in `src/index.js`, empty by default. If you set one, the page must send it in the `X-Clave` header. Do not commit a real value.
+
+Never write secret values in the repository.
