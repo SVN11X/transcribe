@@ -25,7 +25,7 @@ docs/     goals, decisions and the improvement plan
 
 ## Run locally
 
-Run this in the `src/` folder, then open http://localhost:8000:
+Run this in the `src/` folder, then open `http://localhost:8000`:
 
 ```
 python -m http.server 8000
