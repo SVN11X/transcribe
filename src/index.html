@@ -4,6 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="color-scheme" content="light dark" />
+<script>try{var t=localStorage.getItem("tema");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t}catch(e){}</script>
 <meta name="theme-color" content="#F1F3F6" media="(prefers-color-scheme: light)" />
 <meta name="theme-color" content="#0F1317" media="(prefers-color-scheme: dark)" />
 <meta name="description" content="Convierte un video en una línea de tiempo con su transcripción y capturas de pantalla, lista para dársela a una IA." />
@@ -27,13 +28,22 @@
     --mono:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
   @media (prefers-color-scheme: dark){
-    :root{
+    :root:not([data-theme="light"]){
       --bg:#0F1317; --surface:#161B20; --sunken:#12171B;
       --ink:#E7EBEE; --muted:#9BA6B2; --faint:#6E7884;
       --line:#262E36; --line-strong:#38424C;
       --accent:#5DB8CB; --accent-hover:#82CBDA; --accent-soft:#14323A; --on-accent:#04222A;
       --rec:#F06A61; --ok:#5CC491; --warn:#F2A46E; --warn-soft:#35221A; --info:#A9C4E6; --info-soft:#17233A;
     }
+  }
+  :root[data-theme="light"]{color-scheme:light}
+  :root[data-theme="dark"]{
+    color-scheme:dark;
+    --bg:#0F1317; --surface:#161B20; --sunken:#12171B;
+    --ink:#E7EBEE; --muted:#9BA6B2; --faint:#6E7884;
+    --line:#262E36; --line-strong:#38424C;
+    --accent:#5DB8CB; --accent-hover:#82CBDA; --accent-soft:#14323A; --on-accent:#04222A;
+    --rec:#F06A61; --ok:#5CC491; --warn:#F2A46E; --warn-soft:#35221A; --info:#A9C4E6; --info-soft:#17233A;
   }
 
   *{box-sizing:border-box}
@@ -45,6 +55,7 @@
   .wrap{max-width:760px; margin:0 auto; padding:40px 20px 64px}
 
   /* encabezado */
+  .topbar{display:flex; justify-content:flex-end; margin-bottom:8px}
   .intro h1{font-size:30px; line-height:1.15; font-weight:600; letter-spacing:-.018em; margin:0 0 12px; max-width:24ch; text-wrap:balance}
   .intro p{margin:0 0 12px; color:var(--muted); max-width:62ch}
   .privacy{display:flex; gap:9px; align-items:flex-start; font-size:13.5px}
@@ -312,6 +323,7 @@
 <body>
 <div class="wrap">
   <header class="intro">
+    <div class="topbar"><button type="button" class="btn ghost sm" id="themeToggle" aria-pressed="false">Tema oscuro</button></div>
     <h1>Prepara un video para que una IA lo entienda</h1>
     <p>Esta página arma una línea de tiempo con lo que se dice en el video y una captura de la pantalla en cada momento. Descargas todo en un ZIP y lo subes a una IA que pueda ver imágenes.</p>
     <p class="privacy">
@@ -1458,6 +1470,24 @@ function showMode(mode){
   if (mode === 'auto') renderModels();
   if (mode === 'server' && !serverChecked && serverURL()) testServer();
 }
+function initTheme(){
+  const root = document.documentElement, btn = $('themeToggle');
+  const mq = window.matchMedia ? matchMedia('(prefers-color-scheme: dark)') : null;
+  const isDark = () => root.dataset.theme ? root.dataset.theme === 'dark' : !!(mq && mq.matches);
+  const sync = () => {
+    btn.setAttribute('aria-pressed', String(isDark()));
+    const bg = getComputedStyle(root).getPropertyValue('--bg').trim();
+    document.querySelectorAll('meta[name="theme-color"]').forEach(m => m.setAttribute('content', bg));
+  };
+  btn.addEventListener('click', () => {
+    const next = isDark() ? 'light' : 'dark';
+    root.dataset.theme = next;
+    lsSet('tema', next);
+    sync();
+  });
+  if (mq && mq.addEventListener) mq.addEventListener('change', sync);
+  sync();
+}
 function initModes(){
   const saved = lsGet('modo-transcripcion', 'server');
   const r = document.querySelector('input[name="src"][value="' + saved + '"]');
@@ -1963,6 +1993,7 @@ window.addEventListener('beforeunload', e => {
 
 // al abrir la página
 buildRows();
+initTheme();
 initModes();
 refreshRun();
 if ('serviceWorker' in navigator && window.isSecureContext && location.protocol.startsWith('http')){
