@@ -6,3 +6,9 @@ workers_dev = true
 # Workers AI binding. The code reads it as env.AI.
 [ai]
 binding = "AI"
+
+# Keep the dashboard settings so a deploy does not change them.
+preview_urls = false
+
+[observability]
+enabled = true

@@ -1465,6 +1465,13 @@ function initModes(){
   const guardada = lsGet('servidor-url', '');
   $('serverUrl').value = (guardada && !guardada.includes('tu-cuenta.workers.dev')) ? guardada : SERVIDOR_POR_DEFECTO;
   $('serverKey').value = lsGet('servidor-clave', '');
+  // un enlace con #clave=... guarda la clave en este navegador y la quita de la barra de direcciones
+  const enEnlace = new URLSearchParams(location.hash.slice(1)).get('clave');
+  if (enEnlace) {
+    $('serverKey').value = enEnlace.trim();
+    lsSet('servidor-clave', enEnlace.trim());
+    history.replaceState(null, '', location.pathname + location.search);
+  }
   document.querySelectorAll('input[name="src"]').forEach(x => x.addEventListener('change', () => {
     lsSet('modo-transcripcion', currentMode());
     showMode(currentMode());

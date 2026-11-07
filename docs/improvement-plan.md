@@ -25,3 +25,5 @@ Status: pending, done, skipped. Light: green = apply, yellow = approved move, re
 | 19 | yellow | pending | Split `src/index.html` into CSS and JS files with native ES modules, no bundler (goal 3) |
 | 20 | yellow | done in code, owner must set the secret and deploy | Worker access key: `CLAVE_ACCESO` secret, constant-time compare, fails closed, tests in `worker/tests/` |
 | 21 | green | done | `standard.yml` aligned with the standards v1.8.2 template (pull request event types) |
+| 22 | green | done | Open the page with `#clave=...` to store the access key in a browser. Tested in Chrome on localhost with a fake key |
+| 23 | green | done in code, owner must deploy | `wrangler.toml` keeps `preview_urls = false` and observability on, as in the dashboard |
