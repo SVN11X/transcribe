@@ -13,7 +13,7 @@ Status: pending, done, skipped. Light: green = apply, yellow = approved move, re
 | 7 | green | done (goals, DESIGN.md and README status written from the owner's answers) | README in English and UTF-8, goals draft, CHANGELOG, DESIGN draft |
 | 8 | green | done | Decision record for third-party scripts |
 | 9 | green | done (workflow standard.yml) | CI: standard check and gitleaks with minimal permissions |
-| 10 | green | partly done | Deep review done. Applied: contrast of empty shot text, `:active` state, AudioContext close, blob URL release, dead code removed. Pending, need owner OK: SRI plus opaque cache (SW), https-only server URL and key storage, unverified claims about data retention and quotas, footer publish instructions, theme toggle, models render race, seek timeout, English identifiers, split of index.html |
+| 10 | green | partly done | Deep review done. Applied: contrast of empty shot text, `:active` state, AudioContext close, blob URL release, dead code removed. Pending, need owner OK: SRI plus opaque cache (SW), https-only server URL and key storage, unverified claims about data retention and quotas, footer publish instructions, models render race, seek timeout, English identifiers, split of index.html |
 | 11 | green | pending | Web audit: WCAG 2.2 AA, 320 px layout, loading and error states |
 | 12 | owner | pending | GitHub About panel, wiki and projects off (`standard.py github . --apply`) |
 | 13 | green | pending | Layout: on windows 1100 px and wider, show two panes. Steps 1 to 3 on the left, step 4 with progress and result on the right. Today one 760 px column puts the Generate button after three stacked sections (M3 window size classes, NN/g scrolling and attention) |
@@ -27,3 +27,6 @@ Status: pending, done, skipped. Light: green = apply, yellow = approved move, re
 | 21 | green | done | `standard.yml` aligned with the standards v1.8.2 template (pull request event types) |
 | 22 | green | done | Open the page with `#clave=...` to store the access key in a browser. Tested in Chrome on localhost with a fake key |
 | 23 | green | done in code, owner must deploy | `wrangler.toml` keeps `preview_urls = false` and observability on, as in the dashboard |
+| 24 | green | done | Theme toggle (light and dark) in the header. Follows the system until the user picks one, then stores it in `localStorage`. Click, `aria-pressed` and storage tested in Chrome. Colors not checked by eye because the test browser darkened the page by itself |
+| 25 | green | pending | Text contrast of the palette passes in both themes (computed from the color values). Field and control borders (`--line-strong`) are 1.65 to 1, WCAG 1.4.11 asks for 3 to 1 |
+
