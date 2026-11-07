@@ -391,7 +391,7 @@
                   <input type="url" id="serverUrl" placeholder="https://transcribir.tu-cuenta.workers.dev" autocomplete="off" spellcheck="false" />
                 </div>
                 <div class="field narrow">
-                  <label for="serverKey">Clave, solo si la configuraste en el servidor</label>
+                  <label for="serverKey">Clave de acceso del servidor</label>
                   <input type="password" id="serverKey" autocomplete="off" />
                 </div>
                 <p class="hint">El audio viaja en trozos de menos de 30 segundos. El servidor solo lo transcribe y no guarda copias.</p>
@@ -1306,7 +1306,8 @@ function encodeWAV(samples){
 function serverProblem(status, code, netFail){
   if (netFail) return 'No se pudo conectar con el servidor. Revisa la dirección. Si está bien, puede que la red de este computador bloquee esa dirección.';
   if (status === 403 || code === 'pagina-no-permitida') return 'El servidor no acepta esta página. Agrega su dirección en PAGINAS_PERMITIDAS en el código del Worker.';
-  if (status === 401 || code === 'clave-incorrecta') return 'La clave no coincide con la del servidor.';
+  if (status === 401 || code === 'clave-incorrecta') return 'Falta la clave o no coincide con la del servidor. Escríbela en Cambiar servidor, campo Clave de acceso.';
+  if (code === 'falta-clave-acceso') return 'Al servidor le falta el secreto CLAVE_ACCESO.';
   if (code === 'falta-enlace-ai') return 'Al servidor le falta el enlace de Workers AI con el nombre AI.';
   if (code === 'cuota-agotada') return 'Se acabó la cuota gratis de hoy en los servicios del servidor. Se renueva a medianoche UTC.';
   return 'El servidor respondió con un error (' + status + ').';

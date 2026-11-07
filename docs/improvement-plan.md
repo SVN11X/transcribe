@@ -23,3 +23,5 @@ Status: pending, done, skipped. Light: green = apply, yellow = approved move, re
 | 17 | yellow | pending | Smart captures for meetings (goal 1). Needs a decision record: simple rules or an AI model in the browser |
 | 18 | yellow | pending | Rewrite the privacy text after reading the Cloudflare and Groq policies (goal 2) |
 | 19 | yellow | pending | Split `src/index.html` into CSS and JS files with native ES modules, no bundler (goal 3) |
+| 20 | yellow | done in code, owner must set the secret and deploy | Worker access key: `CLAVE_ACCESO` secret, constant-time compare, fails closed, tests in `worker/tests/` |
+| 21 | green | done | `standard.yml` aligned with the standards v1.8.2 template (pull request event types) |

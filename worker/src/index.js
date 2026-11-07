@@ -14,6 +14,10 @@
 // 4. En Settings, sección Bindings, pulsa Add binding, elige Workers AI y ponle el nombre AI.
 // 5. Copia la dirección del Worker (termina en workers.dev) y pégala en la página.
 //
+// Para proteger el servidor, obligatorio.
+// En Settings del Worker, sección Runtime variables and secrets, agrega un Secret llamado CLAVE_ACCESO
+// con una clave larga y al azar. Quien use la página la escribe en Cambiar servidor, campo Clave.
+//
 // Para sumar Groq, opcional.
 // 6. Crea una cuenta gratis en console.groq.com, entra a API Keys y crea una clave.
 // 7. En Settings del Worker, sección Runtime variables and secrets, pulsa Add variable,
@@ -24,8 +28,8 @@ const PAGINAS_PERMITIDAS = [
   'https://svn11x.github.io'
 ];
 
-// Clave opcional. Si pones una, la página tiene que enviarla en el campo Clave.
-const CLAVE = '';
+// La clave de acceso vive en el secreto CLAVE_ACCESO, nunca en este archivo.
+// La página la envía en el encabezado X-Clave. Sin el secreto el servidor rechaza todo.
 
 const MODELO_CLOUDFLARE = '@cf/openai/whisper-large-v3-turbo';
 const MODELO_GROQ = 'whisper-large-v3-turbo';
@@ -48,7 +52,8 @@ export default {
 
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     if (!permitido) return responder({ error: 'pagina-no-permitida' }, 403, cors);
-    if (CLAVE && request.headers.get('X-Clave') !== CLAVE) return responder({ error: 'clave-incorrecta' }, 401, cors);
+    if (!env.CLAVE_ACCESO) return responder({ error: 'falta-clave-acceso' }, 500, cors);
+    if (!claveCorrecta(request.headers.get('X-Clave') || '', env.CLAVE_ACCESO)) return responder({ error: 'clave-incorrecta' }, 401, cors);
 
     const hayCloudflare = !!env.AI;
     const hayGroq = !!env.GROQ_API_KEY;
@@ -127,6 +132,15 @@ async function transcribirConGroq(audio, idioma, clave) {
   }
   if (!res.ok) throw new Error('Groq respondió ' + res.status + '. ' + (await res.text()).slice(0, 300));
   return res.json();
+}
+
+// compara sin cortar en la primera diferencia, para no filtrar la clave por el tiempo de respuesta
+function claveCorrecta(recibida, esperada) {
+  const a = new TextEncoder().encode(recibida);
+  const b = new TextEncoder().encode(esperada);
+  let diferencia = a.length ^ b.length;
+  for (let i = 0; i < b.length; i++) diferencia |= (a[i] || 0) ^ b[i];
+  return diferencia === 0;
 }
 
 function listo(r, servicio, cors) {
