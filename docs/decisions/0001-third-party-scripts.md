@@ -27,7 +27,7 @@ The service worker caches the CDN libraries so the page opens offline.
 
 ## Alternatives considered
 
-Vendoring the libraries into `src/` removes the CDN dependency but adds about 10 MB to git. Not needed yet.
+Vendoring the libraries into `src/` removes the CDN dependency but adds their size to git. Not needed yet.
 
 ## Consequences
 
