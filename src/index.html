@@ -20,7 +20,7 @@
   :root{
     --bg:#F1F3F6; --surface:#FFFFFF; --sunken:#F6F7F9;
     --ink:#12161C; --muted:#5A6472; --faint:#8B95A1;
-    --line:#DCE0E6; --line-strong:#C3CAD3;
+    --line:#DCE0E6; --line-strong:#C3CAD3; --control:#7A8491;
     --accent:#0F5C6E; --accent-hover:#0A4856; --accent-soft:#E3EFF2; --on-accent:#FFFFFF;
     --rec:#D9473F; --ok:#1C7C52; --warn:#A44E18; --warn-soft:#FBEEE4; --info:#2A4A6B; --info-soft:#E8EEF6;
     --r-panel:12px; --r-ctl:8px; --r-chip:6px;
@@ -31,7 +31,7 @@
     :root:not([data-theme="light"]){
       --bg:#0F1317; --surface:#161B20; --sunken:#12171B;
       --ink:#E7EBEE; --muted:#9BA6B2; --faint:#6E7884;
-      --line:#262E36; --line-strong:#38424C;
+      --line:#262E36; --line-strong:#38424C; --control:#6B7783;
       --accent:#5DB8CB; --accent-hover:#82CBDA; --accent-soft:#14323A; --on-accent:#04222A;
       --rec:#F06A61; --ok:#5CC491; --warn:#F2A46E; --warn-soft:#35221A; --info:#A9C4E6; --info-soft:#17233A;
     }
@@ -41,7 +41,7 @@
     color-scheme:dark;
     --bg:#0F1317; --surface:#161B20; --sunken:#12171B;
     --ink:#E7EBEE; --muted:#9BA6B2; --faint:#6E7884;
-    --line:#262E36; --line-strong:#38424C;
+    --line:#262E36; --line-strong:#38424C; --control:#6B7783;
     --accent:#5DB8CB; --accent-hover:#82CBDA; --accent-soft:#14323A; --on-accent:#04222A;
     --rec:#F06A61; --ok:#5CC491; --warn:#F2A46E; --warn-soft:#35221A; --info:#A9C4E6; --info-soft:#17233A;
   }
@@ -77,7 +77,7 @@
   .lead{margin:0 0 14px; color:var(--muted); font-size:14px}
 
   /* zona para soltar el video */
-  .drop{display:flex; flex-direction:column; align-items:center; gap:6px; text-align:center; padding:32px 20px; border:1.5px dashed var(--line-strong); border-radius:var(--r-panel); background:var(--surface); cursor:pointer; transition:border-color .15s, background-color .15s}
+  .drop{display:flex; flex-direction:column; align-items:center; gap:6px; text-align:center; padding:32px 20px; border:1.5px dashed var(--control); border-radius:var(--r-panel); background:var(--surface); cursor:pointer; transition:border-color .15s, background-color .15s}
   .drop:hover, body.dragging .drop{border-color:var(--accent)}
   body.dragging .drop{border-style:solid; background:var(--accent-soft)}
   #video:focus-visible + .drop{outline:2px solid var(--accent); outline-offset:2px}
@@ -123,7 +123,7 @@
   .field > label, .label{display:block; font-size:13.5px; font-weight:500; margin:0 0 6px}
   input[type=url], input[type=password], input[type=number], select, textarea{
     width:100%; font:inherit; font-size:15px; color:var(--ink); background:var(--surface);
-    border:1px solid var(--line-strong); border-radius:var(--r-ctl); padding:8px 11px; min-height:40px;
+    border:1px solid var(--control); border-radius:var(--r-ctl); padding:8px 11px; min-height:40px;
   }
   textarea{min-height:140px; resize:vertical; line-height:1.5}
   input:focus-visible, select:focus-visible, textarea:focus-visible{outline:2px solid var(--accent); outline-offset:1px; border-color:var(--accent)}
@@ -132,7 +132,7 @@
 
   .inline-field{display:flex; align-items:center; flex-wrap:wrap; gap:8px 12px}
   .inline-field label{font-weight:500; font-size:14.5px}
-  .suffix{display:inline-flex; align-items:center; border:1px solid var(--line-strong); border-radius:var(--r-ctl); background:var(--surface)}
+  .suffix{display:inline-flex; align-items:center; border:1px solid var(--control); border-radius:var(--r-ctl); background:var(--surface)}
   .suffix:focus-within{outline:2px solid var(--accent); outline-offset:1px; border-color:var(--accent)}
   .suffix input{border:0; width:64px; min-height:38px; text-align:right; padding-right:4px; background:transparent}
   .suffix input:focus-visible{outline:none}
@@ -141,7 +141,7 @@
   /* interruptores */
   .switch{position:relative; display:grid; grid-template-columns:36px minmax(0,1fr); gap:12px; margin-top:14px; cursor:pointer}
   .switch input{position:absolute; left:0; top:2px; width:36px; height:20px; margin:0; opacity:0; cursor:pointer}
-  .sw{position:relative; width:36px; height:20px; margin-top:2px; border-radius:99px; background:var(--line-strong); transition:background-color .15s}
+  .sw{position:relative; width:36px; height:20px; margin-top:2px; border-radius:99px; background:var(--control); transition:background-color .15s}
   .sw::after{content:""; position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.25); transition:transform .15s}
   .switch input:checked + .sw{background:var(--accent)}
   .switch input:checked + .sw::after{transform:translateX(16px)}

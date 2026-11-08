@@ -28,5 +28,5 @@ Status: pending, done, skipped. Light: green = apply, yellow = approved move, re
 | 22 | green | done | Open the page with `#clave=...` to store the access key in a browser. Tested in Chrome on localhost with a fake key |
 | 23 | green | done in code, owner must deploy | `wrangler.toml` keeps `preview_urls = false` and observability on, as in the dashboard |
 | 24 | green | done | Theme toggle (light and dark) in the header. Follows the system until the user picks one, then stores it in `localStorage`. Click, `aria-pressed` and storage tested in Chrome. Colors not checked by eye because the test browser darkened the page by itself |
-| 25 | green | pending | Text contrast of the palette passes in both themes (computed from the color values). Field and control borders (`--line-strong`) are 1.65 to 1, WCAG 1.4.11 asks for 3 to 1 |
+| 25 | green | done | New `--control` color for the borders of fields, the drop zone and the switch track: 3.79 to 1 on white and 3.41 to 1 on the light page in the light theme, 3.79 to 1 and 4.08 to 1 in the dark theme (computed from the values) |
 
